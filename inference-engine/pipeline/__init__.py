@@ -1,11 +1,18 @@
 """Inference Engine Pipeline Module.
 
-Exposes public interface contracts, dataclasses, model backends, preprocessing/postprocessing utilities, and color map overlay functions.
+Exposes public interface contracts, dataclasses, model backends, preprocessing/postprocessing utilities,
+color map overlay functions, and vectorized dataset label remapping utilities.
 """
 
 from .color_map import apply_color_map, create_color_map, overlay_mask_on_image
 from .deeplabv3 import DeepLabV3Backend
 from .interface import MaskType, SegmentationBackend, SegmentationResult
+from .label_mapping import (
+    BDD100K_TO_VOC_MAP,
+    CITYSCAPES_TO_VOC_MAP,
+    build_lookup_table,
+    remap_labels,
+)
 from .processor import (
     colorize_mask,
     compute_class_distribution,
@@ -29,4 +36,8 @@ __all__ = [
     "apply_color_map",
     "create_color_map",
     "overlay_mask_on_image",
+    "CITYSCAPES_TO_VOC_MAP",
+    "BDD100K_TO_VOC_MAP",
+    "build_lookup_table",
+    "remap_labels",
 ]
