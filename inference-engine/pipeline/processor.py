@@ -26,6 +26,16 @@ except ImportError:
     transforms = None
 
 try:
+    from .color_map import apply_color_map, create_color_map, overlay_mask_on_image
+except (ImportError, ValueError):
+    try:
+        from color_map import apply_color_map, create_color_map, overlay_mask_on_image
+    except (ImportError, ValueError):
+        apply_color_map = None
+        create_color_map = None
+        overlay_mask_on_image = None
+
+try:
     from ..taxonomy import PASCAL_VOC_CLASSES, PASCAL_VOC_PALETTE, get_class_name
 except (ImportError, ValueError):
     from taxonomy import PASCAL_VOC_CLASSES, PASCAL_VOC_PALETTE, get_class_name
