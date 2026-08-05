@@ -9,6 +9,7 @@ from .interface import MaskType, SegmentationBackend, SegmentationResult
 from .processor import (
     colorize_mask,
     compute_class_distribution,
+    get_default_transform,
     postprocess_prediction,
     preprocess_image,
     resize_mask,
@@ -19,6 +20,7 @@ __all__ = [
     "MaskType",
     "SegmentationBackend",
     "SegmentationResult",
+    "get_default_transform",
     "preprocess_image",
     "postprocess_prediction",
     "compute_class_distribution",

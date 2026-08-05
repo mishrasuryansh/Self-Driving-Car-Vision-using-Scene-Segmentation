@@ -43,6 +43,29 @@ except (ImportError, ValueError):
 logger = logging.getLogger(__name__)
 
 
+def get_default_transform(image_size: Tuple[int, int] = (520, 520)) -> Any:
+    """Return standard torchvision ImageNet normalization transform pipeline.
+
+    Args:
+        image_size (Tuple[int, int]): Target image height and width.
+
+    Returns:
+        Any: torchvision.transforms.Compose pipeline instance.
+    """
+    if transforms is None:
+        raise RuntimeError("torchvision is required to build default preprocessing transform.")
+    return transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
+
+
 def preprocess_image(image: Any, transform: Optional[Any] = None) -> Any:
     """Preprocess an input PIL Image into a normalized 4D tensor ready for model inference.
 
@@ -73,17 +96,7 @@ def preprocess_image(image: Any, transform: Optional[Any] = None) -> Any:
         raise ValueError(f"Invalid input image: {str(err)}") from err
 
     if transform is None:
-        # Default fallback transform if no model-specific transform is passed
-        transform = transforms.Compose(
-            [
-                transforms.Resize((520, 520)),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225],
-                ),
-            ]
-        )
+        transform = get_default_transform((520, 520))
 
     tensor = transform(rgb_image)
     if hasattr(tensor, "dim") and tensor.dim() == 3:
@@ -272,6 +285,7 @@ def resize_mask(mask: Any, target_size: Tuple[int, int]) -> Any:
 
 
 __all__ = [
+    "get_default_transform",
     "preprocess_image",
     "postprocess_prediction",
     "compute_class_distribution",
