@@ -3,6 +3,8 @@
 This module implements the `DeepLabV3Backend` class, inheriting from `SegmentationBackend`.
 It ports and modernizes the legacy model loading and inference execution logic, utilizing
 the modern PyTorch/torchvision `weights=` API instead of deprecated `pretrained=True`.
+All preprocessing, postprocessing, and class distribution calculations are delegated
+to `processor.py`.
 """
 
 import io
@@ -26,6 +28,7 @@ except ImportError:
     DeepLabV3_ResNet101_Weights = None
 
 from .interface import SegmentationBackend, SegmentationResult
+from .processor import compute_class_distribution, postprocess_prediction, preprocess_image
 
 try:
     from ..taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
@@ -64,17 +67,21 @@ class DeepLabV3Backend(SegmentationBackend):
             DeepLabV3_ResNet101_Weights.DEFAULT if DeepLabV3_ResNet101_Weights is not None else None
         )
 
-        if transforms is not None:
-            self._transform: Optional[Any] = transforms.Compose(
-                [
-                    transforms.Resize((520, 520)),
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225],
-                    ),
-                ]
-            )
+        if transforms is not None and DeepLabV3_ResNet101_Weights is not None:
+            try:
+                self._transform: Optional[Any] = self._weights_enum.transforms()
+            except Exception as err:
+                logger.debug("Could not obtain weights.transforms(): %s. Falling back to Compose.", err)
+                self._transform = transforms.Compose(
+                    [
+                        transforms.Resize((520, 520)),
+                        transforms.ToTensor(),
+                        transforms.Normalize(
+                            mean=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225],
+                        ),
+                    ]
+                )
         else:
             self._transform = None
 
@@ -159,29 +166,18 @@ class DeepLabV3Backend(SegmentationBackend):
         start_time = time.perf_counter()
 
         try:
-            input_tensor = self._transform(image).unsqueeze(0).to(self._device)
+            # Delegate image preprocessing to processor pipeline
+            input_tensor = preprocess_image(image, transform=self._transform).to(self._device)
 
             with torch.no_grad():
-                output = self._model(input_tensor)["out"][0]
-                mask_tensor = output.argmax(0).cpu()
-                mask = mask_tensor.numpy().tolist()
+                output_raw = self._model(input_tensor)
+                # Delegate argmax extraction to processor pipeline
+                mask = postprocess_prediction(output_raw)
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
-            # Calculate class pixel distribution
-            flat_mask = mask_tensor.flatten()
-            total_pixels = flat_mask.numel()
-            unique_classes, counts = torch.unique(flat_mask, return_counts=True)
-
-            class_distribution: Dict[str, float] = {}
-            for cls_idx, count in zip(unique_classes.tolist(), counts.tolist()):
-                class_name = (
-                    PASCAL_VOC_CLASSES[cls_idx]
-                    if cls_idx < len(PASCAL_VOC_CLASSES)
-                    else f"class_{cls_idx}"
-                )
-                percentage = round((count / total_pixels) * 100.0, 2)
-                class_distribution[class_name] = percentage
+            # Delegate class distribution calculation to processor pipeline
+            class_distribution = compute_class_distribution(mask)
 
             metadata = self.get_metadata()
             metadata["input_image_size"] = image.size
