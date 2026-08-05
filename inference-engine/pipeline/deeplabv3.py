@@ -27,32 +27,12 @@ except ImportError:
 
 from .interface import SegmentationBackend, SegmentationResult
 
-logger = logging.getLogger(__name__)
+try:
+    from ..taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
+except (ImportError, ValueError):
+    from taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
 
-# Standard 21 Pascal VOC class category names (index 0 to 20)
-PASCAL_VOC_CLASSES = [
-    "background",
-    "aeroplane",
-    "bicycle",
-    "bird",
-    "boat",
-    "bottle",
-    "bus",
-    "car",
-    "cat",
-    "chair",
-    "cow",
-    "diningtable",
-    "dog",
-    "horse",
-    "motorbike",
-    "person",
-    "pottedplant",
-    "sheep",
-    "sofa",
-    "train",
-    "tvmonitor",
-]
+logger = logging.getLogger(__name__)
 
 
 class DeepLabV3Backend(SegmentationBackend):
