@@ -1,0 +1,1 @@
+# Keep inference-engine/weights folder tracked in git while ignoring *.pt model weights
