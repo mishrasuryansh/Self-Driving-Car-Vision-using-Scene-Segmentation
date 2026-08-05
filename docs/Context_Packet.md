@@ -14,8 +14,8 @@ storage for media artifacts. Each tier is independently containerized
 and independently scalable.
 
 FOLDER STRUCTURE (fixed — never rename/move):
-frontend/ · backend/app/{api,core,models,schemas,services} · 
-inference-engine/{models,pipeline,weights} · worker/app/tasks · 
+frontend/ · backend/app/{api,core,models,schemas,services} ·
+inference-engine/{models,pipeline,weights} · worker/app/tasks ·
 storage/{uploads,outputs} · infra/{docker,ci-cd} · docs/ · scripts/
 
 TECHNOLOGY STACK: Python (FastAPI backend, PyTorch/torchvision inference

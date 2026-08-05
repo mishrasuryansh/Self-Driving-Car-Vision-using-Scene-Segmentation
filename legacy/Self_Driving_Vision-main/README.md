@@ -68,4 +68,3 @@ python main.py --video input_video.mp4
 ### Notes
 - Requires a CUDA-capable GPU for best real-time performance, but will run on CPU (slower).
 - Uses DeepLabV3 pretrained on COCO/VOC via torchvision.
-
