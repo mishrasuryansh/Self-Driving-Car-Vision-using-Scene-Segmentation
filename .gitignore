@@ -48,7 +48,9 @@ yarn-error.log*
 frontend/dist/
 frontend/build/
 
-# IDE / OS
+# IDE / OS / Virtual environments
+.venv/
+venv/
 .vscode/
 .idea/
 *.swp
