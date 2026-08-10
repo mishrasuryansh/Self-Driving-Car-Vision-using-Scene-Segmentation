@@ -6,6 +6,7 @@ color map overlay functions, single-image inference pipeline, and vectorized dat
 
 from .color_map import apply_color_map, create_color_map, overlay_mask_on_image
 from .deeplabv3 import DeepLabV3Backend
+from .fps_counter import FPSCounter
 from .image_pipeline import process_single_image
 from .interface import MaskType, SegmentationBackend, SegmentationResult
 from .label_mapping import (
@@ -25,6 +26,7 @@ from .processor import (
 
 __all__ = [
     "DeepLabV3Backend",
+    "FPSCounter",
     "MaskType",
     "SegmentationBackend",
     "SegmentationResult",
