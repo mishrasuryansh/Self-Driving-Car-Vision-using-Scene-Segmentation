@@ -174,6 +174,9 @@ def process_video(
             out.write(overlay_bgr)
             processed_count += 1
 
+            # Note: The legacy simulated "car speed" metric (mask centroid pixel movement) was intentionally
+            # removed as an unlabeled, non-physical placeholder per Section 2.4 audit and T024 decision.
+
             # Update FPS counter & log current FPS every ~1 second wall-clock interval
             prev_last_time = fps_counter.last_time
             fps_counter.update()
