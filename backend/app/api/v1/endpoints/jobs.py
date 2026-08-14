@@ -51,6 +51,10 @@ def _format_job_response(doc: dict) -> JobResponse:
     )
 
 
+import json
+from app.db.redis import get_redis
+
+
 @router.get(
     "/{job_id}",
     status_code=status.HTTP_200_OK,
@@ -61,8 +65,21 @@ async def get_job_status(
     job_id: str,
     current_user: UserInDB = Depends(get_current_active_user),
     db=Depends(get_db),
+    redis=Depends(get_redis),
 ) -> JobResponse:
-    """Retrieve job status, progress percentage, output path, and Section 8.2 performance metrics by job ID."""
+    """Retrieve job status, progress percentage, output path, and Section 8.2 performance metrics by job ID (cached via Redis)."""
+    cache_key = f"job:{job_id}"
+
+    # Try Redis cache first (T049)
+    if redis is not None:
+        try:
+            cached_str = await redis.get(cache_key)
+            if cached_str:
+                cached_data = json.loads(cached_str)
+                return _format_job_response(cached_data)
+        except Exception as exc:
+            logger.warning("Redis cache read failed for key '%s': %s", cache_key, exc)
+
     doc = None
     if db is not None:
         try:
@@ -78,7 +95,16 @@ async def get_job_status(
     if not doc:
         raise NotFoundException(message=f"Job #{job_id} not found.")
 
-    return _format_job_response(doc)
+    formatted_res = _format_job_response(doc)
+
+    # Store in Redis cache for 60 seconds (T049)
+    if redis is not None:
+        try:
+            await redis.set(cache_key, formatted_res.model_dump_json(), ex=60)
+        except Exception as exc:
+            logger.warning("Redis cache write failed for key '%s': %s", cache_key, exc)
+
+    return formatted_res
 
 
 @router.get(
