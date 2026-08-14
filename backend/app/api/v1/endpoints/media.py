@@ -1,26 +1,25 @@
-"""Media File Upload & Retrieval Endpoints.
+"""Media File Upload & Retrieval Endpoints (T092, T093).
 
 Provides endpoints for uploading raw image/video files (`POST /api/v1/media/upload`)
-and retrieving media metadata (`GET /api/v1/media/{media_id}`) conforming to Section 8.3 schema.
+and retrieving media metadata (`GET /api/v1/media/{media_id}`) with path traversal guards (T092)
+and user resource ownership verification (T093).
 """
 
 from datetime import datetime, timezone
 import logging
 import os
-from typing import Dict
 import uuid
 from fastapi import APIRouter, Depends, File, UploadFile, status
 from app.api.deps import get_current_active_user
 from app.config import settings
+from app.db.memory_store import _in_memory_media
 from app.db.mongodb import get_db
-from app.exceptions import BadRequestException, NotFoundException
+from app.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.media import MediaResponse
 from app.models.user import UserInDB
 
 logger = logging.getLogger("app.api.v1.endpoints.media")
 router = APIRouter()
-
-from app.db.memory_store import _in_memory_media
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"}
@@ -30,15 +29,20 @@ ALLOWED_VIDEO_TYPES = {"video/mp4", "video/avi", "video/quicktime", "video/x-msv
     "/upload",
     status_code=status.HTTP_201_CREATED,
     response_model=MediaResponse,
-    summary="Upload raw image or video file",
+    summary="Upload raw image or video file (T092)",
 )
 async def upload_media(
     file: UploadFile = File(...),
     current_user: UserInDB = Depends(get_current_active_user),
     db=Depends(get_db),
 ) -> MediaResponse:
-    """Upload media file (JPEG/PNG/MP4), validate mime type and size, and save to storage uploads directory."""
+    """Upload media file (JPEG/PNG/MP4), validate mime type, size, and guard against path traversal attacks (T092)."""
     filename = file.filename or "uploaded_file"
+
+    # Path traversal validation (T092)
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise BadRequestException(message="Invalid filename: path traversal sequences are not allowed.")
+
     mime_type = (file.content_type or "").lower().strip()
 
     # Determine file type
@@ -52,7 +56,9 @@ async def upload_media(
         if not mime_type or mime_type == "application/octet-stream":
             mime_type = "video/mp4"
     else:
-        raise BadRequestException(message=f"Unsupported file type '{mime_type}'. Only JPEG, PNG, WEBP images and MP4, AVI, MOV videos are allowed.")
+        raise BadRequestException(
+            message=f"Unsupported file type '{mime_type}'. Only JPEG, PNG, WEBP images and MP4, AVI, MOV videos are allowed."
+        )
 
     # Read content to validate file size
     contents = await file.read()
@@ -61,10 +67,14 @@ async def upload_media(
     max_video_bytes = settings.MAX_VIDEO_SIZE_MB * 1024 * 1024
 
     if file_type == "image" and size_bytes > max_image_bytes:
-        raise BadRequestException(message=f"Image size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of {settings.MAX_IMAGE_SIZE_MB} MB.")
+        raise BadRequestException(
+            message=f"Image size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of {settings.MAX_IMAGE_SIZE_MB} MB."
+        )
 
     if file_type == "video" and size_bytes > max_video_bytes:
-        raise BadRequestException(message=f"Video size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of {settings.MAX_VIDEO_SIZE_MB} MB.")
+        raise BadRequestException(
+            message=f"Video size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of {settings.MAX_VIDEO_SIZE_MB} MB."
+        )
 
     # Generate unique media ID and file storage path
     media_id = str(uuid.uuid4())
@@ -126,14 +136,14 @@ async def upload_media(
     "/{media_id}",
     status_code=status.HTTP_200_OK,
     response_model=MediaResponse,
-    summary="Get uploaded media file metadata",
+    summary="Get uploaded media file metadata (T093)",
 )
 async def get_media_metadata(
     media_id: str,
     current_user: UserInDB = Depends(get_current_active_user),
     db=Depends(get_db),
 ) -> MediaResponse:
-    """Retrieve uploaded media item metadata by ID."""
+    """Retrieve uploaded media item metadata by ID with ownership check (T093)."""
     doc = None
     if db is not None:
         try:
@@ -146,6 +156,10 @@ async def get_media_metadata(
 
     if not doc:
         raise NotFoundException(message=f"Media item #{media_id} not found.")
+
+    # Ownership check (T093)
+    if doc.get("user_id") and doc["user_id"] != current_user.id:
+        raise ForbiddenException(message="Access denied: you do not own this media resource.")
 
     return MediaResponse(
         id=str(doc.get("_id") or doc.get("id")),

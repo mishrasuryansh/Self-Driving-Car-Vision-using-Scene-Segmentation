@@ -1,22 +1,28 @@
-"""Job Status Query & Management Endpoints.
+"""Job Status Query & Management Endpoints (T092, T093).
 
 Provides HTTP endpoints for querying asynchronous job status (`GET /api/v1/jobs/{job_id}`),
-listing user jobs (`GET /api/v1/jobs`), and cancelling active processing jobs (`POST /api/v1/jobs/{job_id}/cancel`).
+listing user jobs (`GET /api/v1/jobs`), and cancelling active processing jobs (`POST /api/v1/jobs/{job_id}/cancel`)
+with input path traversal guards (T092) and resource ownership validation (T093).
 """
 
 from datetime import datetime, timezone
+import json
 import logging
+import os
 from typing import Dict, List, Optional
-from fastapi import APIRouter, Depends, status
+import uuid
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from app.api.deps import get_current_active_user
+from app.config import settings
 from app.core.celery_app import celery_app
 from app.db.memory_store import _in_memory_jobs, _in_memory_tasks
 from app.db.mongodb import get_db
 from app.db.redis import get_redis
-from app.exceptions import BadRequestException, NotFoundException
+from app.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.inference import TaskMetrics
 from app.models.job import JobResponse
 from app.models.user import UserInDB
+from app.tasks.video_tasks import process_video_task
 
 logger = logging.getLogger("app.api.v1.endpoints.jobs")
 router = APIRouter()
@@ -52,18 +58,11 @@ def _format_job_response(doc: dict) -> JobResponse:
     )
 
 
-import os
-import uuid
-from fastapi import File, Form, UploadFile
-from app.config import settings
-from app.tasks.video_tasks import process_video_task
-
-
 @router.post(
     "/video",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=JobResponse,
-    summary="Submit video for asynchronous scene segmentation (T053)",
+    summary="Submit video for asynchronous scene segmentation (T092)",
 )
 async def submit_video_job(
     file: UploadFile = File(...),
@@ -71,8 +70,13 @@ async def submit_video_job(
     current_user: UserInDB = Depends(get_current_active_user),
     db=Depends(get_db),
 ) -> JobResponse:
-    """Validate video file upload, create 'queued' job record, dispatch Celery task, and return immediately (T053)."""
+    """Validate video file upload, check for path traversal attacks, create 'queued' job record, and dispatch Celery task (T092)."""
     filename = file.filename or "video.mp4"
+
+    # Path traversal check (T092)
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise BadRequestException(message="Invalid filename: path traversal sequences are not allowed.")
+
     mime_type = (file.content_type or "").lower().strip()
 
     if not filename.lower().endswith((".mp4", ".avi", ".mov")) and not mime_type.startswith("video/"):
@@ -83,7 +87,9 @@ async def submit_video_job(
     max_video_bytes = 200 * 1024 * 1024  # 200 MB limit
 
     if size_bytes > max_video_bytes:
-        raise BadRequestException(message=f"Video size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of 200 MB.")
+        raise BadRequestException(
+            message=f"Video size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of 200 MB."
+        )
 
     media_id = str(uuid.uuid4())
     job_id = str(uuid.uuid4())
@@ -125,7 +131,7 @@ async def submit_video_job(
     else:
         _in_memory_jobs[job_id] = job_doc
 
-    # Enqueue Celery worker task (T053)
+    # Enqueue Celery worker task
     try:
         process_video_task.delay(
             job_id=job_id,
@@ -144,7 +150,7 @@ async def submit_video_job(
     "/{job_id}",
     status_code=status.HTTP_200_OK,
     response_model=JobResponse,
-    summary="Get asynchronous job status and metrics",
+    summary="Get asynchronous job status and metrics (T093)",
 )
 async def get_job_status(
     job_id: str,
@@ -152,16 +158,21 @@ async def get_job_status(
     db=Depends(get_db),
     redis=Depends(get_redis),
 ) -> JobResponse:
-    """Retrieve job status, progress percentage, output path, and Section 8.2 performance metrics by job ID (cached via Redis)."""
+    """Retrieve job status, progress, and performance metrics by job ID with resource ownership verification (T093)."""
     cache_key = f"job:{job_id}"
 
-    # Try Redis cache first (T049)
+    # Try Redis cache first
     if redis is not None:
         try:
             cached_str = await redis.get(cache_key)
             if cached_str:
                 cached_data = json.loads(cached_str)
+                # Ownership check on cached item (T093)
+                if cached_data.get("user_id") and cached_data["user_id"] != current_user.id:
+                    raise ForbiddenException(message="Access denied: you do not own this job resource.")
                 return _format_job_response(cached_data)
+        except ForbiddenException:
+            raise
         except Exception as exc:
             logger.warning("Redis cache read failed for key '%s': %s", cache_key, exc)
 
@@ -180,9 +191,13 @@ async def get_job_status(
     if not doc:
         raise NotFoundException(message=f"Job #{job_id} not found.")
 
+    # Ownership check (T093)
+    if doc.get("user_id") and doc["user_id"] != current_user.id:
+        raise ForbiddenException(message="Access denied: you do not own this job resource.")
+
     formatted_res = _format_job_response(doc)
 
-    # Store in Redis cache for 60 seconds (T049)
+    # Store in Redis cache for 60 seconds
     if redis is not None:
         try:
             await redis.set(cache_key, formatted_res.model_dump_json(), ex=60)
@@ -196,13 +211,13 @@ async def get_job_status(
     "",
     status_code=status.HTTP_200_OK,
     response_model=List[JobResponse],
-    summary="List all jobs for current user",
+    summary="List all jobs for current user (T093)",
 )
 async def list_user_jobs(
     current_user: UserInDB = Depends(get_current_active_user),
     db=Depends(get_db),
 ) -> List[JobResponse]:
-    """Retrieve list of all processing jobs created by the current authenticated user."""
+    """Retrieve list of all processing jobs created by the current authenticated user (T093)."""
     results = []
     if db is not None:
         try:
@@ -226,14 +241,28 @@ async def list_user_jobs(
     "/{job_id}/cancel",
     status_code=status.HTTP_200_OK,
     response_model=JobResponse,
-    summary="Cancel active processing job",
+    summary="Cancel active processing job (T093)",
 )
 async def cancel_job(
     job_id: str,
     current_user: UserInDB = Depends(get_current_active_user),
     db=Depends(get_db),
 ) -> JobResponse:
-    """Revoke active Celery task execution and update job status to cancelled."""
+    """Revoke active Celery task execution with ownership authorization verification (T093)."""
+    doc = None
+    if db is not None:
+        try:
+            doc = await db["jobs"].find_one({"_id": job_id})
+        except Exception as exc:
+            logger.warning("MongoDB lookup failed for cancel job '%s': %s", job_id, exc)
+            doc = _in_memory_jobs.get(job_id)
+    else:
+        doc = _in_memory_jobs.get(job_id)
+
+    # Ownership check (T093)
+    if doc and doc.get("user_id") and doc["user_id"] != current_user.id:
+        raise ForbiddenException(message="Access denied: you do not own this job resource.")
+
     # Revoke Celery task
     try:
         celery_app.control.revoke(job_id, terminate=True)
@@ -242,7 +271,6 @@ async def cancel_job(
         logger.warning("Could not revoke Celery task '%s': %s", job_id, exc)
 
     now = datetime.now(timezone.utc)
-    doc = None
     if db is not None:
         try:
             doc = await db["jobs"].find_one_and_update(
@@ -263,7 +291,6 @@ async def cancel_job(
             doc = _in_memory_jobs[job_id]
 
     if not doc:
-        # Create cancelled record if missing
         doc = {
             "_id": job_id,
             "job_id": job_id,

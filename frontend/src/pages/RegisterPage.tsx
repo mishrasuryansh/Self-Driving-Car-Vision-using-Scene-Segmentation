@@ -1,13 +1,13 @@
 /**
- * User Registration Page Component (T062).
+ * User Registration Page Component (T062, T096).
  *
- * Handles new account creation, validation, and auto-login redirection.
+ * Handles new account creation, client-side input validation, password strength checks, and auto-login redirection.
  */
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { UserPlus, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { UserPlus, AlertCircle, Loader2 } from 'lucide-react';
 
 export const RegisterPage: React.FC = () => {
   const { register, login } = useAuth();
@@ -22,11 +22,24 @@ export const RegisterPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Client-side validation (T096)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await register(email, password, fullName);
-      await login(email, password);
+      await register(email.trim(), password, fullName.trim());
+      await login(email.trim(), password);
       navigate('/', { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Registration failed. Email may already be in use.');
@@ -59,7 +72,7 @@ export const RegisterPage: React.FC = () => {
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             placeholder="Autonomous Driver"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-400"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-400 text-xs"
           />
         </div>
 
@@ -71,7 +84,7 @@ export const RegisterPage: React.FC = () => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="driver@selfdriving.com"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-400"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-400 text-xs"
           />
         </div>
 
@@ -83,14 +96,14 @@ export const RegisterPage: React.FC = () => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="At least 8 characters"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-400"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-cyan-400 text-xs"
           />
         </div>
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full btn-primary mt-2 flex items-center justify-center space-x-2 disabled:opacity-50"
+          className="w-full btn-primary mt-2 flex items-center justify-center space-x-2 disabled:opacity-50 text-xs py-2.5"
         >
           {isSubmitting ? (
             <>

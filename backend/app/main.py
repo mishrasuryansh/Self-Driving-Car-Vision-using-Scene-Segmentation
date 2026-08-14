@@ -1,7 +1,7 @@
-"""FastAPI Backend Application Main Entrypoint.
+"""FastAPI Backend Application Main Entrypoint (T091, T095).
 
-Initializes the FastAPI application instance, binds settings, configures CORS and custom middlewares,
-registers global exception handlers, manages database & cache connection lifecycles, and exposes API routes.
+Initializes the FastAPI application instance, binds settings, configures CORS (T095) and custom security middlewares (T091),
+registers global exception handlers (T094), manages database & cache connection lifecycles, and exposes API routes.
 """
 
 from contextlib import asynccontextmanager
@@ -20,7 +20,12 @@ from app.exceptions import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from app.middleware import ProcessTimeMiddleware, RequestIDMiddleware
+from app.middleware import (
+    ProcessTimeMiddleware,
+    RateLimiterMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
 
 # Configure structured Python logging
 logging.basicConfig(
@@ -52,23 +57,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Register Global Exception Handlers
+# Register Global Exception Handlers (T094)
 app.add_exception_handler(APIException, api_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
-# Configure CORS Middleware
-if settings.ALLOWED_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# Configure CORS Security Policy (T095)
+origins = settings.ALLOWED_ORIGINS or ["http://localhost:5173", "http://localhost:3000"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
 
-# Configure Custom HTTP Middlewares
+# Configure Custom HTTP Middlewares (T091)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimiterMiddleware, default_limit=100, auth_limit=10)
 app.add_middleware(ProcessTimeMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
