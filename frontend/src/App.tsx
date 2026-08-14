@@ -1,12 +1,14 @@
 /**
- * Main Application Component & React Router Configuration (T059 & T060).
+ * Main Application Component & React Router Configuration (T059, T060, T062, T063).
  *
- * Configures client-side routing across all Section 10.2 pages:
- * Dashboard, Upload (Image/Video), History, Analytics, Settings, About, Login, Register.
+ * Configures client-side routing, global AuthProvider context wrapper,
+ * and ProtectedRoute authentication guards.
  */
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { UploadImagePage } from './pages/UploadImagePage';
@@ -21,19 +23,58 @@ import { RegisterPage } from './pages/RegisterPage';
 export const App: React.FC = () => {
   return (
     <Router>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/upload/image" element={<UploadImagePage />} />
-          <Route path="/upload/video" element={<UploadVideoPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-        </Routes>
-      </Layout>
+      <AuthProvider>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+
+            {/* Protected Routes (T063) */}
+            <Route
+              path="/upload/image"
+              element={
+                <ProtectedRoute>
+                  <UploadImagePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/upload/video"
+              element={
+                <ProtectedRoute>
+                  <UploadVideoPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/history"
+              element={
+                <ProtectedRoute>
+                  <HistoryPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <ProtectedRoute>
+                  <AnalyticsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </Layout>
+      </AuthProvider>
     </Router>
   );
 };

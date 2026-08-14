@@ -8,8 +8,11 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Car, ChevronDown, Menu, X, Upload, History, BarChart2, Settings, Info, User } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+
 
 export const NavBar: React.FC = () => {
+  const { user, isAuthenticated, logout } = useAuth();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isUploadDropdownOpen, setIsUploadDropdownOpen] = useState(false);
   const location = useLocation();
@@ -101,14 +104,31 @@ export const NavBar: React.FC = () => {
             </Link>
           </nav>
 
-          {/* Auth Slot / Controls */}
+          {/* Auth Slot / Controls (T062) */}
           <div className="hidden md:flex items-center space-x-3">
-            <Link to="/login" className="text-sm font-medium text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700">
-              Sign In
-            </Link>
-            <Link to="/register" className="btn-primary text-sm">
-              Register
-            </Link>
+            {isAuthenticated ? (
+              <div className="flex items-center space-x-3">
+                <span className="text-xs text-cyan-400 font-medium bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg flex items-center">
+                  <User className="w-3.5 h-3.5 mr-1.5" />
+                  {user?.full_name || user?.email}
+                </span>
+                <button
+                  onClick={logout}
+                  className="text-sm font-medium text-slate-400 hover:text-red-400 px-3 py-1.5 rounded-lg border border-slate-800 hover:border-red-900/50 transition"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <>
+                <Link to="/login" className="text-sm font-medium text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700">
+                  Sign In
+                </Link>
+                <Link to="/register" className="btn-primary text-sm">
+                  Register
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile Hamburger Button */}
