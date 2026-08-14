@@ -1,74 +1,61 @@
 # Self-Driving Car Vision using Scene Segmentation
 
-[![PR Pipeline](https://github.com/mishrasuryansh/Self-Driving-Car-Vision-using-Scene-Segmentation/actions/workflows/pr-pipeline.yml/badge.svg)](https://github.com/mishrasuryansh/Self-Driving-Car-Vision-using-Scene-Segmentation/actions)
+[![CI Pipeline](https://github.com/mishrasuryansh/Self-Driving-Car-Vision-using-Scene-Segmentation/workflows/CI/badge.svg)](https://github.com/mishrasuryansh/Self-Driving-Car-Vision-using-Scene-Segmentation/actions)
+[![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
+[![React Version](https://img.shields.io/badge/react-18.0-cyan.svg)](https://react.dev/)
+[![PyTorch Version](https://img.shields.io/badge/pytorch-2.x-orange.svg)](https://pytorch.org/)
 
-A web-based AI platform for real-time and asynchronous pixel-level semantic scene segmentation of road images and videos, enabling autonomous vehicle perception analysis with interactive visual overlays and performance metrics.
+A full-stack, real-time **Deep Learning Scene Segmentation Platform** for autonomous vehicle navigation. Powered by DeepLabV3+ with ResNet-101 ASPP, FastAPI async REST backend, Celery distributed worker queue, Redis cache, MongoDB storage, and a React SPA dashboard.
 
-## Getting Started
+---
 
-Follow these instructions to set up and run the local development environment using Docker Compose.
+## Key Features & Capabilities
+- **DeepLabV3+ ASPP Architecture**: Multi-scale receptive fields classifying roads, vehicles, pedestrians, sky, and obstacles.
+- **Synchronous & Asynchronous Pipelines**: Real-time sub-50ms image inference and background video stream processing.
+- **Interactive Before/After Slider**: Overlay opacity control, side-by-side comparison, and class distribution legend.
+- **Perception Analytics Dashboard**: Time-series job volume trends, mean frame latency, FPS throughput gauges, and CSV export.
+- **Enterprise Security Hardening**: IP sliding window rate limiting (HTTP 429), path traversal guards (HTTP 400), user resource ownership checks (HTTP 403), and security HTTP headers.
+
+---
+
+## Architecture Overview
+```text
+  [ React 18 SPA Frontend ]
+            │ (Axios JWT REST / JSON)
+            ▼
+  [ FastAPI Gateway Service ]
+            │ ── (Redis Queue / Celery) ──► [ PyTorch Inference Worker ]
+            ▼                                         │
+  [ MongoDB / Redis Store ] ◄─────────────────────────┘
+```
+
+---
+
+## Quickstart Guide with Docker Compose
 
 ### Prerequisites
+- [Docker Engine](https://docs.docker.com/get-docker/) & [Docker Compose v2](https://docs.docker.com/compose/)
+- Git
 
-- [Git](https://git-scm.com/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with Docker Compose v2.0+)
-- [Python 3.11+](https://www.python.org/) (for pre-commit hooks and local script tools)
+### 1. Clone Repository
+```bash
+git clone https://github.com/mishrasuryansh/Self-Driving-Car-Vision-using-Scene-Segmentation.git
+cd Self-Driving-Car-Vision-using-Scene-Segmentation
+```
 
-### Quick Start
+### 2. Launch Stack
+```bash
+docker-compose up --build -d
+```
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/mishrasuryansh/Self-Driving-Car-Vision-using-Scene-Segmentation.git
-   cd Self-Driving-Car-Vision-using-Scene-Segmentation
-   ```
+### 3. Access Application Services
+- **Frontend SPA Web UI**: `http://localhost:5173`
+- **FastAPI OpenAPI Docs**: `http://localhost:8000/api/v1/docs`
+- **Health Check Endpoint**: `http://localhost:8000/api/v1/health`
 
-2. **Create environment file**:
-   Copy the example environment template to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
+---
 
-3. **Start container services**:
-   Launch all microservices (frontend, backend, worker, inference engine, MongoDB, and Redis):
-   ```bash
-   docker compose -f infra/docker-compose.yml up --build -d
-   ```
-
-4. **Access service endpoints**:
-   Once started, the services are available at the following URLs:
-   - **Frontend Web UI**: [http://localhost:3000](http://localhost:3000)
-   - **Backend FastAPI Service**: [http://localhost:8000](http://localhost:8000)
-   - **MongoDB Database**: `localhost:27017`
-   - **Redis Cache & Broker**: `localhost:6379`
-
-   *(Note: Default ports can be customized by modifying port variables in your `.env` file).*
-
-5. **Stop container services**:
-   To stop and remove running containers:
-   ```bash
-   docker compose -f infra/docker-compose.yml down
-   ```
-
-## Contributing & Developer Setup
-
-### Code Formatting & Quality
-This repository uses `.editorconfig` for consistent formatting across editors and `pre-commit` hooks for automatic quality checks.
-
-#### Pre-Commit Setup
-To set up pre-commit hooks locally:
-
-1. Install `pre-commit`:
-   ```bash
-   pip install pre-commit
-   ```
-2. Install the git hook scripts:
-   ```bash
-   pre-commit install
-   ```
-3. Run pre-commit checks manually on all files:
-   ```bash
-   pre-commit run --all-files
-   ```
-
-### License
-This project is licensed under the [MIT License](LICENSE).
+## Academic Team Credits & Supervision
+- **Development Team**: Anshika Tiwari, Uday Kumar Shukla, Swastik Shukla, Suryansh Mishra, Akansha Rajpoot, Akansha Yadav
+- **Supervisor**: Dr. Milli Dhar
+- **Institution**: Pranveer Singh Institute of Technology (PSIT), Kanpur
