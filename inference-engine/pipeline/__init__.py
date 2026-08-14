@@ -15,6 +15,7 @@ from .label_mapping import (
     build_lookup_table,
     remap_labels,
 )
+from .metrics import compute_mean_iou, compute_pixel_accuracy
 from .processor import (
     colorize_mask,
     compute_class_distribution,
@@ -30,6 +31,8 @@ __all__ = [
     "MaskType",
     "SegmentationBackend",
     "SegmentationResult",
+    "compute_mean_iou",
+    "compute_pixel_accuracy",
     "process_single_image",
     "get_default_transform",
     "preprocess_image",
