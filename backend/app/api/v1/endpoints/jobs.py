@@ -12,6 +12,7 @@ from app.api.deps import get_current_active_user
 from app.core.celery_app import celery_app
 from app.db.memory_store import _in_memory_jobs, _in_memory_tasks
 from app.db.mongodb import get_db
+from app.db.redis import get_redis
 from app.exceptions import BadRequestException, NotFoundException
 from app.models.inference import TaskMetrics
 from app.models.job import JobResponse
@@ -51,8 +52,92 @@ def _format_job_response(doc: dict) -> JobResponse:
     )
 
 
-import json
-from app.db.redis import get_redis
+import os
+import uuid
+from fastapi import File, Form, UploadFile
+from app.config import settings
+from app.tasks.video_tasks import process_video_task
+
+
+@router.post(
+    "/video",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=JobResponse,
+    summary="Submit video for asynchronous scene segmentation (T053)",
+)
+async def submit_video_job(
+    file: UploadFile = File(...),
+    model_id: Optional[str] = Form(None),
+    current_user: UserInDB = Depends(get_current_active_user),
+    db=Depends(get_db),
+) -> JobResponse:
+    """Validate video file upload, create 'queued' job record, dispatch Celery task, and return immediately (T053)."""
+    filename = file.filename or "video.mp4"
+    mime_type = (file.content_type or "").lower().strip()
+
+    if not filename.lower().endswith((".mp4", ".avi", ".mov")) and not mime_type.startswith("video/"):
+        raise BadRequestException(message="Unsupported file type. Only MP4, AVI, and MOV video files are allowed.")
+
+    contents = await file.read()
+    size_bytes = len(contents)
+    max_video_bytes = 200 * 1024 * 1024  # 200 MB limit
+
+    if size_bytes > max_video_bytes:
+        raise BadRequestException(message=f"Video size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of 200 MB.")
+
+    media_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
+    _, ext = os.path.splitext(filename)
+    if not ext:
+        ext = ".mp4"
+
+    saved_filename = f"{media_id}{ext}"
+    upload_dir = settings.STORAGE_UPLOADS_PATH
+    if upload_dir.startswith("/app/"):
+        upload_dir = upload_dir.replace("/app/", "", 1)
+    dest_path = os.path.normpath(os.path.join(upload_dir, saved_filename))
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+    with open(dest_path, "wb") as f:
+        f.write(contents)
+
+    now = datetime.now(timezone.utc)
+    job_doc = {
+        "_id": job_id,
+        "job_id": job_id,
+        "media_id": media_id,
+        "user_id": current_user.id,
+        "status": "queued",
+        "progress_percent": 0.0,
+        "output_path": None,
+        "metrics": None,
+        "error": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    if db is not None:
+        try:
+            await db["jobs"].insert_one(job_doc)
+        except Exception as exc:
+            logger.warning("MongoDB insert_one failed for video job: %s", exc)
+            _in_memory_jobs[job_id] = job_doc
+    else:
+        _in_memory_jobs[job_id] = job_doc
+
+    # Enqueue Celery worker task (T053)
+    try:
+        process_video_task.delay(
+            job_id=job_id,
+            media_id=media_id,
+            video_path=dest_path,
+            user_id=current_user.id,
+        )
+        logger.info("Enqueued Celery video task '%s'", job_id)
+    except Exception as exc:
+        logger.warning("Could not dispatch Celery task '%s' (%s). Operating in local fallback mode.", job_id, exc)
+
+    return _format_job_response(job_doc)
 
 
 @router.get(

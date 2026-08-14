@@ -14,7 +14,7 @@ class JobBase(BaseModel):
     """Base properties for an asynchronous processing job."""
 
     media_id: str
-    status: Literal["pending", "processing", "completed", "failed", "cancelled"] = "pending"
+    status: Literal["queued", "pending", "processing", "completed", "failed", "cancelled"] = "queued"
     progress_percent: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
