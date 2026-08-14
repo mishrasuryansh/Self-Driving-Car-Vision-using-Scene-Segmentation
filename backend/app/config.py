@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
 
     # Database & Cache Connections
-    MONGODB_URI: str = "mongodb://admin:secretpassword@db:27017/self_driving_db?authSource=admin"
+    MONGODB_URL: str = "mongodb://127.0.0.1:27017/self_driving_db"
+    MONGODB_URI: str = ""
     MONGO_INITDB_ROOT_USERNAME: str = "admin"
     MONGO_INITDB_ROOT_PASSWORD: str = "secretpassword"
     MONGO_INITDB_DATABASE: str = "self_driving_db"

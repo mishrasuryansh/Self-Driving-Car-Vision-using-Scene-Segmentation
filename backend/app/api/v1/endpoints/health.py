@@ -9,7 +9,8 @@ from typing import Dict
 from fastapi import APIRouter, Depends, status
 from app.config import settings
 from app.core.celery_app import celery_app
-from app.db.redis import get_redis, redis_manager
+from app.db.mongodb import get_db
+from app.db.redis import get_redis
 
 logger = logging.getLogger("app.api.v1.endpoints.health")
 router = APIRouter()
@@ -21,9 +22,23 @@ router = APIRouter()
     response_model=dict,
     summary="System Health Check",
 )
-def get_system_health() -> dict:
-    """Return application health status and version."""
-    return {"status": "ok", "version": settings.VERSION}
+async def get_system_health(
+    db=Depends(get_db),
+) -> dict:
+    """Return application health status, version, and MongoDB database connectivity status."""
+    mongo_status = "disconnected"
+    if db is not None:
+        try:
+            await db.command("ping")
+            mongo_status = "connected"
+        except Exception as exc:
+            logger.warning("MongoDB ping error in health check: %s", exc)
+
+    return {
+        "status": "ok" if mongo_status == "connected" else "degraded",
+        "mongodb_status": mongo_status,
+        "version": settings.VERSION,
+    }
 
 
 @router.get(
@@ -47,7 +62,6 @@ async def get_worker_health(
     worker_active = False
     celery_responses = []
     try:
-        # Ping active Celery workers with 1s timeout
         ping_res = celery_app.control.ping(timeout=1.0)
         if ping_res:
             worker_active = True
