@@ -29,6 +29,7 @@ except ImportError:
 
 from .color_map import overlay_mask_on_image
 from .deeplabv3 import DeepLabV3Backend
+from .fps_counter import FPSCounter
 from .interface import SegmentationBackend, SegmentationResult
 from .processor import compute_class_distribution
 
@@ -46,7 +47,7 @@ def process_video(
 
     Reads video frames using OpenCV, delegates model inference to a pre-loaded `SegmentationBackend`
     instance (ensuring the model is loaded once prior to the loop), applies T014's alpha-blend overlay,
-    and writes the annotated video to `output_path`.
+    tracks real-time FPS with `FPSCounter`, and writes the annotated video to `output_path`.
 
     Args:
         video_path (str): Path to input video file.
@@ -137,6 +138,7 @@ def process_video(
 
     start_time = time.perf_counter()
     processed_count = 0
+    fps_counter = FPSCounter()
 
     try:
         while True:
@@ -171,6 +173,15 @@ def process_video(
 
             out.write(overlay_bgr)
             processed_count += 1
+
+            # Note: The legacy simulated "car speed" metric (mask centroid pixel movement) was intentionally
+            # removed as an unlabeled, non-physical placeholder per Section 2.4 audit and T024 decision.
+
+            # Update FPS counter & log current FPS every ~1 second wall-clock interval
+            prev_last_time = fps_counter.last_time
+            fps_counter.update()
+            if fps_counter.last_time != prev_last_time:
+                logger.info("FPS: %.1f (processed %d/%d frames)", fps_counter.get_fps(), processed_count, total_frames)
 
             if log_interval > 0 and (processed_count % log_interval == 0 or processed_count == total_frames):
                 pct = (processed_count / total_frames * 100.0) if total_frames > 0 else 0.0

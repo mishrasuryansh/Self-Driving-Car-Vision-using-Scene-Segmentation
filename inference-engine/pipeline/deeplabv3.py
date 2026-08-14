@@ -3,8 +3,8 @@
 This module implements the `DeepLabV3Backend` class, inheriting from `SegmentationBackend`.
 It supports loading fine-tuned model checkpoints (e.g. `model_v1.pt`) with sized classification
 heads targeting T013's taxonomy (`NUM_CLASSES = 21`), or stock torchvision pretrained weights.
-All preprocessing, postprocessing, and class distribution calculations are delegated
-to `processor.py`.
+Supports optional FP16 (half-precision) inference on CUDA hardware with automatic CPU FP32 fallback
+and strict NaN/Inf numerical instability detection.
 """
 
 import io
@@ -36,7 +36,11 @@ from .processor import compute_class_distribution, postprocess_prediction, prepr
 try:
     from ..taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
 except (ImportError, ValueError):
-    from taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
+    try:
+        from taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
+    except (ImportError, ValueError):
+        NUM_CLASSES = 21
+        PASCAL_VOC_CLASSES = [f"class_{i}" for i in range(21)]
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +49,22 @@ class DeepLabV3Backend(SegmentationBackend):
     """Concrete segmentation backend using DeepLabV3-ResNet101.
 
     Provides lazy model loading, CPU/CUDA hardware execution, fine-tuned checkpoint loading,
-    and structured semantic segmentation inference for single images.
+    configurable FP16 half-precision inference path with CPU FP32 fallback, and structured
+    semantic segmentation inference for single images.
     """
 
     def __init__(
         self,
         device: Optional[str] = None,
         weights_path: Optional[str] = None,
+        use_fp16: bool = False,
     ) -> None:
         """Initialize the DeepLabV3 backend settings without loading heavy model weights.
 
         Args:
             device (Optional[str]): Hardware execution device ('cpu', 'cuda', or None for auto-detect).
             weights_path (Optional[str]): Path to fine-tuned PyTorch model weights `.pt`.
+            use_fp16 (bool): Whether to enable FP16 half-precision inference path on CUDA (default: False).
         """
         if torch is not None:
             if device is None:
@@ -72,6 +79,10 @@ class DeepLabV3Backend(SegmentationBackend):
         self._model: Optional[Any] = None
         self._loaded: bool = False
         self._explicit_weights_path: bool = weights_path is not None
+
+        env_fp16 = os.getenv("USE_FP16", "").lower() in ("true", "1", "yes")
+        self._use_fp16: bool = use_fp16 or env_fp16
+        self._is_fp16_active: bool = False
 
         # Resolve weights path
         env_weights_path = os.getenv("MODEL_WEIGHTS_PATH")
@@ -116,15 +127,21 @@ class DeepLabV3Backend(SegmentationBackend):
             self._transform = None
 
         logger.info(
-            "DeepLabV3Backend initialized for device '%s' (weights_path=%s, lazy loading enabled).",
+            "DeepLabV3Backend initialized for device '%s' (weights_path=%s, use_fp16=%s, lazy loading enabled).",
             self._device_str,
             self._weights_path,
+            self._use_fp16,
         )
 
     @property
     def is_loaded(self) -> bool:
         """Check whether the model weights are loaded in memory."""
         return self._loaded
+
+    @property
+    def is_fp16_active(self) -> bool:
+        """Check whether FP16 half-precision inference is actively engaged on GPU."""
+        return self._is_fp16_active
 
     def load_model(self) -> None:
         """Load DeepLabV3-ResNet101 weights into memory and transfer to target device.
@@ -151,7 +168,22 @@ class DeepLabV3Backend(SegmentationBackend):
                 "Ensure torch, torchvision, and Pillow are installed."
             )
 
-        # If a valid weights path was configured or found at default location
+        # Determine active FP16 status based on CUDA availability
+        if self._use_fp16:
+            if torch.cuda.is_available() and self._device_str == "cuda":
+                self._is_fp16_active = True
+                logger.info("FP16 half-precision enabled for CUDA inference.")
+            else:
+                self._is_fp16_active = False
+                logger.warning(
+                    "FP16 half-precision requested, but CUDA is not available (device='%s'). "
+                    "Automatically falling back to FP32 precision.",
+                    self._device_str,
+                )
+        else:
+            self._is_fp16_active = False
+
+        # Load fine-tuned checkpoint if available
         if self._weights_path is not None:
             try:
                 logger.info("Loading fine-tuned model checkpoint from '%s'...", self._weights_path)
@@ -173,14 +205,17 @@ class DeepLabV3Backend(SegmentationBackend):
                 model.load_state_dict(state_dict)
                 model.eval()
                 model.to(self._device)
+                if self._is_fp16_active:
+                    model = model.half()
 
                 self._model = model
                 self._loaded = True
                 self._is_fine_tuned = True
                 logger.info(
-                    "Fine-tuned DeepLabV3 model successfully loaded from '%s' and transferred to '%s'.",
+                    "Fine-tuned DeepLabV3 model successfully loaded from '%s' and transferred to '%s' (FP16=%s).",
                     self._weights_path,
                     self._device_str,
+                    self._is_fp16_active,
                 )
                 return
             except (FileNotFoundError, ValueError):
@@ -203,13 +238,16 @@ class DeepLabV3Backend(SegmentationBackend):
             model = deeplabv3_resnet101(weights=self._weights_enum)
             model.eval()
             model.to(self._device)
+            if self._is_fp16_active:
+                model = model.half()
 
             self._model = model
             self._loaded = True
             self._is_fine_tuned = False
             logger.info(
-                "Stock DeepLabV3-ResNet101 model successfully loaded and transferred to '%s'.",
+                "Stock DeepLabV3-ResNet101 model successfully loaded and transferred to '%s' (FP16=%s).",
                 self._device_str,
+                self._is_fp16_active,
             )
         except Exception as err:
             self._loaded = False
@@ -228,7 +266,7 @@ class DeepLabV3Backend(SegmentationBackend):
 
         Raises:
             ValueError: If input image bytes are empty or corrupted.
-            RuntimeError: If model loading or inference execution fails.
+            RuntimeError: If model loading, inference execution, or FP16 numerical check fails.
         """
         if not image_bytes:
             raise ValueError("Input image_bytes cannot be empty.")
@@ -250,11 +288,21 @@ class DeepLabV3Backend(SegmentationBackend):
         start_time = time.perf_counter()
 
         try:
-            # Delegate image preprocessing to processor pipeline
+            # Preprocess image
             input_tensor = preprocess_image(image, transform=self._transform).to(self._device)
+            if self._is_fp16_active:
+                input_tensor = input_tensor.half()
 
             with torch.no_grad():
                 output_raw = self._model(input_tensor)
+
+                # Strict NaN/Inf check for FP16 numerical stability
+                logits = output_raw["out"] if isinstance(output_raw, dict) and "out" in output_raw else output_raw
+                if torch is not None and (torch.isnan(logits).any() or torch.isinf(logits).any()):
+                    msg = "Numerical instability detected during FP16 half-precision inference: output logits contain NaN or Inf values."
+                    logger.error(msg)
+                    raise RuntimeError(msg)
+
                 # Delegate argmax extraction to processor pipeline
                 mask = postprocess_prediction(output_raw)
 
@@ -280,7 +328,7 @@ class DeepLabV3Backend(SegmentationBackend):
         """Retrieve backend operational metadata.
 
         Returns:
-            Dict[str, Any]: Metadata dictionary containing model specifications.
+            Dict[str, Any]: Metadata dictionary containing model specifications and precision status.
         """
         return {
             "model_name": "DeepLabV3-ResNet101",
@@ -289,7 +337,13 @@ class DeepLabV3Backend(SegmentationBackend):
             "weights_path": self._weights_path,
             "is_fine_tuned": self._is_fine_tuned,
             "device": self._device_str,
+            "use_fp16": self._use_fp16,
+            "fp16_active": self._is_fp16_active,
+            "precision": "fp16" if self._is_fp16_active else "fp32",
             "is_loaded": self._loaded,
             "recommended_input_size": (520, 520),
             "num_classes": len(PASCAL_VOC_CLASSES),
         }
+
+
+__all__ = ["DeepLabV3Backend"]
