@@ -3,6 +3,6 @@
 Exposes concrete model backends for scene segmentation.
 """
 
-from .deeplabv3_backend import DeepLabV3Backend
+from .segformer_backend import SegFormerCityscapesBackend
 
-__all__ = ["DeepLabV3Backend"]
+__all__ = ["SegFormerCityscapesBackend"]

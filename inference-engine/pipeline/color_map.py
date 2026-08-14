@@ -23,9 +23,9 @@ except ImportError:
     cv2 = None
 
 try:
-    from ..taxonomy import PASCAL_VOC_PALETTE
+    from ..taxonomy import CITYSCAPES_PALETTE, PASCAL_VOC_PALETTE
 except (ImportError, ValueError):
-    from taxonomy import PASCAL_VOC_PALETTE
+    from taxonomy import CITYSCAPES_PALETTE, PASCAL_VOC_PALETTE
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,11 @@ def create_color_map(palette: Optional[List[Tuple[int, int, int]]] = None) -> Li
         palette (Optional[List[Tuple[int, int, int]]]): Optional palette override.
 
     Returns:
-        List[Tuple[int, int, int]]: List of 21 RGB color tuples.
+        List[Tuple[int, int, int]]: List of RGB color tuples.
     """
     if palette is not None:
         return palette
-    return PASCAL_VOC_PALETTE
+    return CITYSCAPES_PALETTE
 
 
 def apply_color_map(mask: Any, palette: Optional[List[Tuple[int, int, int]]] = None) -> Any:
@@ -53,10 +53,6 @@ def apply_color_map(mask: Any, palette: Optional[List[Tuple[int, int, int]]] = N
 
     Returns:
         Any: 3D uint8 numpy array `(H, W, 3)` in RGB format.
-
-    Raises:
-        ValueError: If input mask is None or invalid.
-        RuntimeError: If NumPy is unavailable.
     """
     if mask is None:
         raise ValueError("Input mask cannot be None.")
@@ -99,19 +95,7 @@ def overlay_mask_on_image(
     alpha: float = 0.5,
     palette: Optional[List[Tuple[int, int, int]]] = None,
 ) -> Any:
-    """Alpha-blend a colored segmentation mask overlay onto an original RGB image.
-
-    Utilizes OpenCV `cv2.addWeighted` when available, with a pure NumPy/PIL fallback.
-
-    Args:
-        image (Any): Original image (PIL.Image.Image or 3D numpy array HxWx3 RGB).
-        mask (Any): 2D segmentation mask (numpy array or 2D list).
-        alpha (float): Transparency blending factor (0.0 = image only, 1.0 = mask only).
-        palette (Optional[List[Tuple[int, int, int]]]): RGB color palette list.
-
-    Returns:
-        Any: Blended image (PIL.Image.Image if input was PIL Image, else 3D numpy array HxWx3 RGB).
-    """
+    """Alpha-blend a colored segmentation mask overlay onto an original RGB image."""
     if image is None or mask is None:
         raise ValueError("Image and mask cannot be None.")
 

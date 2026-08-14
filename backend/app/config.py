@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     MAX_VIDEO_DURATION_SECONDS: int = 60
 
     # Inference Engine & AI Models
-    MODEL_WEIGHTS_PATH: str = "/app/inference-engine/weights/deeplabv3_resnet101.pth"
+    MODEL_WEIGHTS_PATH: str = ""
     MODEL_DEVICE: str = "cpu"
 
     model_config = SettingsConfigDict(

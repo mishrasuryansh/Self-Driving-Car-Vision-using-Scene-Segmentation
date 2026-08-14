@@ -1,7 +1,7 @@
-"""Canonical Pascal VOC Semantic Segmentation Taxonomy and Color Palette Definitions.
+"""Canonical Pascal VOC & Cityscapes Semantic Segmentation Taxonomy and Color Palette Definitions.
 
 This module serves as the single source of truth for class definitions, integer category IDs,
-standard RGB color palettes, and lookup helper functions for the DeepLabV3 Pascal VOC baseline.
+standard RGB color palettes, and lookup helper functions for semantic scene segmentation.
 It contains zero external ML library dependencies.
 """
 
@@ -39,7 +39,7 @@ PASCAL_VOC_CLASSES: List[str] = [
     "tvmonitor",
 ]
 
-# Standard Pascal VOC 21-class RGB color palette (RGB 0-255 tuples matching standard VOC evaluation visualization)
+# Standard Pascal VOC 21-class RGB color palette
 PASCAL_VOC_PALETTE: List[Tuple[int, int, int]] = [
     (0, 0, 0),       # 0: background
     (128, 0, 0),     # 1: aeroplane
@@ -64,97 +64,101 @@ PASCAL_VOC_PALETTE: List[Tuple[int, int, int]] = [
     (0, 64, 128),    # 20: tvmonitor
 ]
 
+# Official Cityscapes 19 Urban Road-Scene Classes
+CITYSCAPES_CLASSES: List[str] = [
+    "road",
+    "sidewalk",
+    "building",
+    "wall",
+    "fence",
+    "pole",
+    "traffic light",
+    "traffic sign",
+    "vegetation",
+    "terrain",
+    "sky",
+    "person",
+    "rider",
+    "car",
+    "truck",
+    "bus",
+    "train",
+    "motorcycle",
+    "bicycle",
+]
+
+# Official Cityscapes 19-class RGB Color Palette
+CITYSCAPES_PALETTE: List[Tuple[int, int, int]] = [
+    (128, 64, 128),   # 0: road
+    (244, 35, 232),   # 1: sidewalk
+    (70, 70, 70),     # 2: building
+    (102, 102, 156),  # 3: wall
+    (190, 153, 153),  # 4: fence
+    (153, 153, 153),  # 5: pole
+    (250, 170, 30),   # 6: traffic light
+    (220, 220, 0),    # 7: traffic sign
+    (107, 142, 35),   # 8: vegetation
+    (152, 251, 152),  # 9: terrain
+    (70, 130, 180),   # 10: sky
+    (220, 20, 60),    # 11: person
+    (255, 0, 0),      # 12: rider
+    (0, 0, 142),      # 13: car
+    (0, 0, 70),       # 14: truck
+    (0, 60, 100),     # 15: bus
+    (0, 80, 100),     # 16: train
+    (0, 0, 230),      # 17: motorcycle
+    (119, 11, 32),    # 18: bicycle
+]
+
 # Internal lookup dictionary for fast case-insensitive name-to-ID matching
 _CLASS_NAME_TO_ID: Dict[str, int] = {
     name.lower(): idx for idx, name in enumerate(PASCAL_VOC_CLASSES)
 }
+for idx, name in enumerate(CITYSCAPES_CLASSES):
+    _CLASS_NAME_TO_ID[name.lower()] = idx
 
 
-def get_class_name(class_id: int) -> str:
-    """Retrieve the class name string for a given integer class ID.
-
-    Args:
-        class_id (int): Integer class label ID (0 to 20).
-
-    Returns:
-        str: Class category name.
-
-    Raises:
-        ValueError: If class_id is outside valid range (0 to 20).
-    """
-    if not isinstance(class_id, int) or class_id < 0 or class_id >= NUM_CLASSES:
-        raise ValueError(
-            f"Invalid class_id: {class_id}. Must be an integer between 0 and {NUM_CLASSES - 1}."
-        )
-    return PASCAL_VOC_CLASSES[class_id]
+def get_class_name(class_id: int, taxonomy: str = "cityscapes") -> str:
+    """Retrieve the class name string for a given integer class ID."""
+    classes = CITYSCAPES_CLASSES if taxonomy.lower() == "cityscapes" else PASCAL_VOC_CLASSES
+    if not isinstance(class_id, int) or class_id < 0 or class_id >= len(classes):
+        return f"class_{class_id}"
+    return classes[class_id]
 
 
 def get_class_id(class_name: str) -> int:
-    """Retrieve the integer class ID for a given class category name.
-
-    Args:
-        class_name (str): Category name string (case-insensitive).
-
-    Returns:
-        int: Corresponding integer class label ID.
-
-    Raises:
-        ValueError: If class_name is unknown or invalid.
-    """
+    """Retrieve the integer class ID for a given class category name."""
     if not isinstance(class_name, str):
         raise ValueError(f"Invalid class_name type: {type(class_name)}. Must be a string.")
 
     cleaned_name = class_name.strip().lower()
-    if cleaned_name not in _CLASS_NAME_TO_ID:
-        raise ValueError(
-            f"Unknown class_name '{class_name}'. Valid classes: {PASCAL_VOC_CLASSES}"
-        )
-    return _CLASS_NAME_TO_ID[cleaned_name]
+    if cleaned_name in _CLASS_NAME_TO_ID:
+        return _CLASS_NAME_TO_ID[cleaned_name]
+    raise ValueError(f"Unknown class_name '{class_name}'.")
 
 
 def is_valid_class(class_id_or_name: Union[int, str]) -> bool:
-    """Validate whether an integer class ID or category name exists in the taxonomy.
-
-    Args:
-        class_id_or_name (Union[int, str]): Class ID (0 to 20) or category name string.
-
-    Returns:
-        bool: True if valid, False otherwise.
-    """
+    """Validate whether an integer class ID or category name exists in the taxonomy."""
     if isinstance(class_id_or_name, int):
-        return 0 <= class_id_or_name < NUM_CLASSES
+        return 0 <= class_id_or_name < max(len(PASCAL_VOC_CLASSES), len(CITYSCAPES_CLASSES))
     elif isinstance(class_id_or_name, str):
         return class_id_or_name.strip().lower() in _CLASS_NAME_TO_ID
     return False
 
 
-def get_color(class_id_or_name: Union[int, str]) -> Tuple[int, int, int]:
-    """Retrieve the canonical (R, G, B) color tuple for a given class ID or category name.
-
-    Args:
-        class_id_or_name (Union[int, str]): Integer class ID (0 to 20) or category name string.
-
-    Returns:
-        Tuple[int, int, int]: RGB color tuple (0-255 values).
-
-    Raises:
-        ValueError: If the class ID or category name is invalid.
-    """
+def get_color(class_id_or_name: Union[int, str], taxonomy: str = "cityscapes") -> Tuple[int, int, int]:
+    """Retrieve the canonical (R, G, B) color tuple for a given class ID or category name."""
+    palette = CITYSCAPES_PALETTE if taxonomy.lower() == "cityscapes" else PASCAL_VOC_PALETTE
     if isinstance(class_id_or_name, int):
         class_id = class_id_or_name
     elif isinstance(class_id_or_name, str):
         class_id = get_class_id(class_id_or_name)
     else:
-        raise ValueError(
-            f"Invalid type for class_id_or_name: {type(class_id_or_name)}. Expected int or str."
-        )
+        raise ValueError(f"Invalid type for class_id_or_name: {type(class_id_or_name)}.")
 
-    if class_id < 0 or class_id >= NUM_CLASSES:
-        raise ValueError(
-            f"Invalid class_id: {class_id}. Must be between 0 and {NUM_CLASSES - 1}."
-        )
-
-    return PASCAL_VOC_PALETTE[class_id]
+    if 0 <= class_id < len(palette):
+        return palette[class_id]
+    return (128, 128, 128)
 
 
 __all__ = [
@@ -163,6 +167,8 @@ __all__ = [
     "BACKGROUND_CLASS_NAME",
     "PASCAL_VOC_CLASSES",
     "PASCAL_VOC_PALETTE",
+    "CITYSCAPES_CLASSES",
+    "CITYSCAPES_PALETTE",
     "get_class_name",
     "get_class_id",
     "is_valid_class",

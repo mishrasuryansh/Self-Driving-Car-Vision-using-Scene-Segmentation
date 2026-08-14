@@ -1,13 +1,9 @@
-/**
- * Asynchronous Video Job Status Polling & Stepper Component (T066).
- *
- * Polling component for tracking video jobs through queued -> processing -> completed/failed states,
- * rendering a visual stepper, progress bar, and cancellation controls.
- */
-
 import React, { useEffect, useState } from 'react';
 import apiClient from '../services/api';
-import { CheckCircle2, Clock, Loader2, AlertCircle, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, AlertCircle, XCircle, Activity, Layers } from 'lucide-react';
+import { GlassCard } from './ui/GlassCard';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
 
 export interface JobDetails {
   job_id: string;
@@ -72,10 +68,10 @@ export const JobStatusStepper: React.FC<JobStatusStepperProps> = ({ jobId, onCom
 
   if (!job) {
     return (
-      <div className="flex items-center justify-center p-8 glass-card">
-        <Loader2 className="w-6 h-6 text-purple-400 animate-spin mr-3" />
-        <span className="text-sm text-slate-300">Initializing job status...</span>
-      </div>
+      <GlassCard glowColor="purple" className="p-8 text-center space-y-3">
+        <Loader2 className="w-8 h-8 text-purple-400 animate-spin mx-auto" />
+        <p className="text-xs text-slate-300 font-semibold">Initializing Celery Job Pipeline...</p>
+      </GlassCard>
     );
   }
 
@@ -86,68 +82,82 @@ export const JobStatusStepper: React.FC<JobStatusStepperProps> = ({ jobId, onCom
   const isCancelled = job.status === 'cancelled';
 
   return (
-    <div className="glass-card p-6 space-y-6">
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+    <GlassCard glowColor="purple" className="p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
         <div>
-          <h3 className="font-semibold text-lg text-slate-100">Async Processing Stepper</h3>
-          <p className="text-xs text-slate-400">Job ID: {jobId}</p>
+          <div className="flex items-center space-x-2">
+            <h3 className="font-bold text-lg text-slate-100 font-heading">Async Video Stepper</h3>
+            <Badge variant={isCompleted ? 'emerald' : isFailed ? 'rose' : 'purple'} dot>
+              {job.status.toUpperCase()}
+            </Badge>
+          </div>
+          <p className="text-xs text-slate-400 font-mono mt-0.5">Job ID: {jobId}</p>
         </div>
 
-        {/* Cancellation Button */}
         {!isCompleted && !isFailed && !isCancelled && (
-          <button
+          <Button
+            variant="danger"
+            size="sm"
             onClick={handleCancel}
-            disabled={isCancelling}
-            className="px-3 py-1.5 rounded-lg border border-red-800/60 bg-red-950/40 text-red-300 text-xs hover:bg-red-900/60 transition flex items-center space-x-1.5"
+            isLoading={isCancelling}
+            leftIcon={<XCircle className="w-3.5 h-3.5" />}
           >
-            {isCancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
-            <span>Cancel Job</span>
-          </button>
+            Cancel Job
+          </Button>
         )}
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-950/60 border border-red-800 text-red-300 text-xs flex items-center space-x-2">
-          <AlertCircle className="w-4 h-4 text-red-400" />
+        <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {/* Visual Stepper Steps */}
-      <div className="grid grid-cols-3 gap-2 text-center text-xs">
-        <div className={`p-3 rounded-lg border ${isQueued ? 'border-cyan-400 bg-cyan-950/30' : isCompleted || isProcessing ? 'border-slate-700 bg-slate-900' : 'border-slate-800'}`}>
-          <Clock className={`w-5 h-5 mx-auto mb-1 ${isQueued ? 'text-cyan-400 animate-pulse' : 'text-slate-500'}`} />
-          <span className="font-medium text-slate-200">1. Queued</span>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center text-xs">
+        <div className={`p-4 rounded-xl border transition-all ${
+          isQueued ? 'border-cyan-400 bg-cyan-950/40 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'border-slate-800 bg-slate-950/40'
+        }`}>
+          <Clock className={`w-6 h-6 mx-auto mb-2 ${isQueued ? 'text-cyan-400 animate-pulse' : 'text-slate-500'}`} />
+          <div className="font-bold text-slate-200">1. Dispatched & Queued</div>
+          <p className="text-[10px] text-slate-400 mt-0.5">Redis Queue Broker</p>
         </div>
 
-        <div className={`p-3 rounded-lg border ${isProcessing ? 'border-purple-400 bg-purple-950/30' : isCompleted ? 'border-slate-700 bg-slate-900' : 'border-slate-800'}`}>
-          <Loader2 className={`w-5 h-5 mx-auto mb-1 ${isProcessing ? 'text-purple-400 animate-spin' : 'text-slate-500'}`} />
-          <span className="font-medium text-slate-200">2. Processing</span>
+        <div className={`p-4 rounded-xl border transition-all ${
+          isProcessing ? 'border-purple-400 bg-purple-950/40 shadow-[0_0_15px_rgba(139,92,246,0.2)]' : 'border-slate-800 bg-slate-950/40'
+        }`}>
+          <Loader2 className={`w-6 h-6 mx-auto mb-2 ${isProcessing ? 'text-purple-400 animate-spin' : 'text-slate-500'}`} />
+          <div className="font-bold text-slate-200">2. DeepLabV3+ Processing</div>
+          <p className="text-[10px] text-slate-400 mt-0.5">PyTorch Celery Worker</p>
         </div>
 
-        <div className={`p-3 rounded-lg border ${isCompleted ? 'border-emerald-400 bg-emerald-950/30' : isFailed ? 'border-red-500 bg-red-950/30' : 'border-slate-800'}`}>
+        <div className={`p-4 rounded-xl border transition-all ${
+          isCompleted ? 'border-emerald-400 bg-emerald-950/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : isFailed ? 'border-rose-500 bg-rose-950/40' : 'border-slate-800 bg-slate-950/40'
+        }`}>
           {isFailed ? (
-            <AlertCircle className="w-5 h-5 mx-auto mb-1 text-red-400" />
+            <AlertCircle className="w-6 h-6 mx-auto mb-2 text-rose-400" />
           ) : (
-            <CheckCircle2 className={`w-5 h-5 mx-auto mb-1 ${isCompleted ? 'text-emerald-400' : 'text-slate-500'}`} />
+            <CheckCircle2 className={`w-6 h-6 mx-auto mb-2 ${isCompleted ? 'text-emerald-400' : 'text-slate-500'}`} />
           )}
-          <span className="font-medium text-slate-200">{isFailed ? 'Failed' : '3. Complete'}</span>
+          <div className="font-bold text-slate-200">{isFailed ? 'Processing Failed' : '3. Complete & Cached'}</div>
+          <p className="text-[10px] text-slate-400 mt-0.5">Ready for Playback</p>
         </div>
       </div>
 
       {/* Progress Bar */}
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs font-medium text-slate-300">
-          <span>Processing Progress</span>
-          <span className="text-purple-400 font-bold">{job.progress_percent.toFixed(1)}%</span>
+      <div className="space-y-2">
+        <div className="flex justify-between text-xs font-semibold text-slate-300">
+          <span>Frame Inference Progress</span>
+          <span className="text-purple-400 font-bold font-mono">{job.progress_percent.toFixed(1)}%</span>
         </div>
-        <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+        <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
           <div
             className="bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 h-full transition-all duration-300 rounded-full"
             style={{ width: `${job.progress_percent}%` }}
           />
         </div>
       </div>
-    </div>
+    </GlassCard>
   );
 };

@@ -1,11 +1,8 @@
-/**
- * Reusable Perception Performance Metrics Panel (T068).
- *
- * Displays Section 8.2 throughput, latency, and class distribution details.
- */
-
 import React from 'react';
 import { Activity, Clock, BarChart2, CheckCircle2 } from 'lucide-react';
+import { GlassCard } from './ui/GlassCard';
+import { Badge } from './ui/Badge';
+import { StatCard } from './ui/StatCard';
 
 interface MetricsPanelProps {
   fps: number;
@@ -21,34 +18,37 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({
   mIoU = 84.5,
 }) => {
   return (
-    <div className="glass-card p-6 space-y-6">
+    <GlassCard glowColor="cyan" className="p-6 space-y-6">
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center space-x-2">
-          <BarChart2 className="w-5 h-5 text-cyan-400" />
-          <h3 className="font-semibold text-lg text-slate-100">Section 8.2 Performance Metrics</h3>
+          <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+            <BarChart2 className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-100 font-heading">Section 8.2 Performance Metrics</h3>
+            <p className="text-xs text-slate-400">Inference Throughput & Benchmark Accuracy</p>
+          </div>
         </div>
-        <span className="text-xs bg-emerald-950/60 border border-emerald-800 text-emerald-300 font-semibold px-2.5 py-1 rounded-full flex items-center">
-          <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> mIoU: {mIoU}%
-        </span>
+        <Badge variant="emerald" dot>mIoU: {mIoU}%</Badge>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-slate-900/60 p-4 rounded-lg border border-slate-800 flex items-center space-x-4">
-          <Activity className="w-7 h-7 text-cyan-400" />
-          <div>
-            <div className="text-xs text-slate-400">Inference Speed</div>
-            <div className="text-xl font-bold text-slate-100">{fps.toFixed(1)} FPS</div>
-          </div>
-        </div>
+        <StatCard
+          icon={<Activity className="w-6 h-6" />}
+          label="Inference Speed"
+          value={`${fps.toFixed(1)} FPS`}
+          subValue="Real-Time Target"
+          accentColor="cyan"
+        />
 
-        <div className="bg-slate-900/60 p-4 rounded-lg border border-slate-800 flex items-center space-x-4">
-          <Clock className="w-7 h-7 text-purple-400" />
-          <div>
-            <div className="text-xs text-slate-400">Average Frame Latency</div>
-            <div className="text-xl font-bold text-slate-100">{avgInferenceMs.toFixed(2)} ms</div>
-          </div>
-        </div>
+        <StatCard
+          icon={<Clock className="w-6 h-6" />}
+          label="Average Frame Latency"
+          value={`${avgInferenceMs.toFixed(2)} ms`}
+          subValue="Sub-50ms SLA"
+          accentColor="purple"
+        />
       </div>
-    </div>
+    </GlassCard>
   );
 };

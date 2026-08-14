@@ -143,7 +143,7 @@ export const SegmentMaskOverlay: React.FC<SegmentMaskOverlayProps> = ({
                 <div key={className} className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
                   <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
                   <span className="capitalize text-slate-200 font-medium">{className}:</span>
-                  <span className="text-cyan-400 font-bold">{percentage.toFixed(1)}%</span>
+                  <span className="text-cyan-400 font-bold">{(percentage as number).toFixed(1)}%</span>
                 </div>
               );
             })}

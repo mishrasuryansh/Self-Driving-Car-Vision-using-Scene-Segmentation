@@ -36,22 +36,15 @@ except (ImportError, ValueError):
         overlay_mask_on_image = None
 
 try:
-    from ..taxonomy import PASCAL_VOC_CLASSES, PASCAL_VOC_PALETTE, get_class_name
+    from ..taxonomy import CITYSCAPES_CLASSES, PASCAL_VOC_CLASSES, get_class_name
 except (ImportError, ValueError):
-    from taxonomy import PASCAL_VOC_CLASSES, PASCAL_VOC_PALETTE, get_class_name
+    from taxonomy import CITYSCAPES_CLASSES, PASCAL_VOC_CLASSES, get_class_name
 
 logger = logging.getLogger(__name__)
 
 
 def get_default_transform(image_size: Tuple[int, int] = (520, 520)) -> Any:
-    """Return standard torchvision ImageNet normalization transform pipeline.
-
-    Args:
-        image_size (Tuple[int, int]): Target image height and width.
-
-    Returns:
-        Any: torchvision.transforms.Compose pipeline instance.
-    """
+    """Return standard torchvision ImageNet normalization transform pipeline."""
     if transforms is None:
         raise RuntimeError("torchvision is required to build default preprocessing transform.")
     return transforms.Compose(
@@ -67,19 +60,7 @@ def get_default_transform(image_size: Tuple[int, int] = (520, 520)) -> Any:
 
 
 def preprocess_image(image: Any, transform: Optional[Any] = None) -> Any:
-    """Preprocess an input PIL Image into a normalized 4D tensor ready for model inference.
-
-    Args:
-        image (Any): Input image instance (PIL.Image.Image).
-        transform (Optional[Any]): Model-specific torchvision transform callable provided by the model backend.
-
-    Returns:
-        Any: 4D PyTorch FloatTensor with batch dimension added `(1, C, H, W)`.
-
-    Raises:
-        ValueError: If input image is None or invalid.
-        RuntimeError: If PyTorch or torchvision are unavailable.
-    """
+    """Preprocess an input PIL Image into a normalized 4D tensor ready for model inference."""
     if image is None:
         raise ValueError("Input image cannot be None.")
 
@@ -106,17 +87,7 @@ def preprocess_image(image: Any, transform: Optional[Any] = None) -> Any:
 
 
 def postprocess_prediction(output: Any) -> Any:
-    """Extract raw model predictions and compute argmax label mask.
-
-    Args:
-        output (Any): Raw model output dictionary (containing 'out' key) or tensor.
-
-    Returns:
-        Any: 2D numpy ndarray containing predicted class index per pixel `(H, W)`.
-
-    Raises:
-        RuntimeError: If output format is invalid or argmax reduction fails.
-    """
+    """Extract raw model predictions and compute argmax label mask."""
     if output is None:
         raise RuntimeError("Model output cannot be None.")
 
@@ -149,17 +120,12 @@ def postprocess_prediction(output: Any) -> Any:
     raise RuntimeError(f"Unsupported output type for postprocessing: {type(output)}")
 
 
-def compute_class_distribution(mask: Any) -> Dict[str, float]:
-    """Calculate relative class pixel percentages from a 2D segmentation mask.
-
-    Args:
-        mask (Any): 2D numpy array or 2D list containing class index labels per pixel.
-
-    Returns:
-        Dict[str, float]: Dictionary mapping class names to pixel coverage percentage (0.0 to 100.0).
-    """
+def compute_class_distribution(mask: Any, taxonomy: str = "cityscapes") -> Dict[str, float]:
+    """Calculate relative class pixel percentages from a 2D segmentation mask."""
     if mask is None:
         return {}
+
+    classes_list = CITYSCAPES_CLASSES if taxonomy.lower() == "cityscapes" else PASCAL_VOC_CLASSES
 
     if np is not None and isinstance(mask, np.ndarray):
         flat_mask = mask.flatten()
@@ -171,7 +137,7 @@ def compute_class_distribution(mask: Any) -> Dict[str, float]:
         distribution: Dict[str, float] = {}
         for cls_idx, count in zip(unique_classes.tolist(), counts.tolist()):
             cls_idx = int(cls_idx)
-            class_name = get_class_name(cls_idx) if 0 <= cls_idx < len(PASCAL_VOC_CLASSES) else f"class_{cls_idx}"
+            class_name = get_class_name(cls_idx, taxonomy=taxonomy) if 0 <= cls_idx < len(classes_list) else f"class_{cls_idx}"
             percentage = round((count / total_pixels) * 100.0, 2)
             distribution[class_name] = percentage
         return distribution
@@ -188,7 +154,7 @@ def compute_class_distribution(mask: Any) -> Dict[str, float]:
 
         distribution = {}
         for cls_idx, count in sorted(counts_dict.items()):
-            class_name = get_class_name(cls_idx) if 0 <= cls_idx < len(PASCAL_VOC_CLASSES) else f"class_{cls_idx}"
+            class_name = get_class_name(cls_idx, taxonomy=taxonomy) if 0 <= cls_idx < len(classes_list) else f"class_{cls_idx}"
             percentage = round((count / total_pixels) * 100.0, 2)
             distribution[class_name] = percentage
         return distribution
@@ -197,17 +163,7 @@ def compute_class_distribution(mask: Any) -> Dict[str, float]:
 
 
 def colorize_mask(mask: Any) -> Any:
-    """Map 2D label index mask to an RGB visualization PIL Image using the taxonomy palette.
-
-    Args:
-        mask (Any): 2D numpy array or 2D list of integer class labels.
-
-    Returns:
-        Any: PIL.Image.Image instance in 'RGB' mode.
-
-    Raises:
-        RuntimeError: If Pillow is not installed or mask is invalid.
-    """
+    """Map 2D label index mask to an RGB visualization PIL Image."""
     if Image is None:
         raise RuntimeError("Pillow is required for mask colorization. Install Pillow.")
 
@@ -227,33 +183,20 @@ def colorize_mask(mask: Any) -> Any:
     height, width = arr.shape
     rgb_arr = np.zeros((height, width, 3), dtype=np.uint8)
 
-    palette_len = len(PASCAL_VOC_PALETTE)
+    palette_len = len(CITYSCAPES_CLASSES)
     unique_classes = np.unique(arr)
 
     for cls_id in unique_classes:
         cls_id_int = int(cls_id)
         if 0 <= cls_id_int < palette_len:
-            color = PASCAL_VOC_PALETTE[cls_id_int]
-        else:
-            color = (0, 0, 0)
-        rgb_arr[arr == cls_id] = color
+            color = apply_color_map(arr)
+            return Image.fromarray(color, mode="RGB")
 
     return Image.fromarray(rgb_arr, mode="RGB")
 
 
 def resize_mask(mask: Any, target_size: Tuple[int, int]) -> Any:
-    """Resize a 2D segmentation mask to target dimensions using nearest-neighbor interpolation.
-
-    Args:
-        mask (Any): 2D numpy array or 2D list of integer class labels.
-        target_size (Tuple[int, int]): Target size tuple `(width, height)`.
-
-    Returns:
-        Any: Resized 2D numpy ndarray `(target_height, target_width)`.
-
-    Raises:
-        ValueError: If target_size or mask are invalid.
-    """
+    """Resize a 2D segmentation mask to target dimensions using nearest-neighbor interpolation."""
     if mask is None:
         raise ValueError("Input mask cannot be None.")
 
@@ -275,7 +218,6 @@ def resize_mask(mask: Any, target_size: Tuple[int, int]) -> Any:
         raise ValueError(f"Unsupported mask type for resizing: {type(mask)}")
 
     if Image is not None:
-        # PIL resize expects (width, height)
         pil_mask = Image.fromarray(arr.astype(np.int32))
         resample_mode = getattr(Image, "Resampling", Image).NEAREST
         resized_pil = pil_mask.resize((width, height), resample=resample_mode)

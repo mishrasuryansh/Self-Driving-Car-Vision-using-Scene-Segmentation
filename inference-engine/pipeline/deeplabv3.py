@@ -1,15 +1,13 @@
-"""DeepLabV3-ResNet101 Semantic Segmentation Inference Backend.
+"""DeepLabV3 / SegFormer Cityscapes Semantic Segmentation Inference Backend.
 
-This module implements the `DeepLabV3Backend` class, inheriting from `SegmentationBackend`.
-It supports loading fine-tuned model checkpoints (e.g. `model_v1.pt`) with sized classification
-heads targeting T013's taxonomy (`NUM_CLASSES = 21`), or stock torchvision pretrained weights.
-Supports optional FP16 (half-precision) inference on CUDA hardware with automatic CPU FP32 fallback
-and strict NaN/Inf numerical instability detection.
+Provides `DeepLabV3Backend`, which automatically delegates to `SegFormerCityscapesBackend`
+for real road-scene segmentation (Cityscapes 19 classes) or loads fine-tuned PyTorch checkpoints.
 """
 
 import io
 import logging
 import os
+import sys
 import time
 from typing import Any, Dict, Optional
 
@@ -33,6 +31,19 @@ except ImportError:
 from .interface import SegmentationBackend, SegmentationResult
 from .processor import compute_class_distribution, postprocess_prediction, preprocess_image
 
+# Ensure inference-engine root directory is in sys.path
+engine_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if engine_dir not in sys.path:
+    sys.path.insert(0, engine_dir)
+
+try:
+    from models.segformer_backend import SegFormerCityscapesBackend
+except Exception as err:
+    try:
+        from ..models.segformer_backend import SegFormerCityscapesBackend
+    except Exception:
+        SegFormerCityscapesBackend = None
+
 try:
     from ..taxonomy import NUM_CLASSES, PASCAL_VOC_CLASSES
 except (ImportError, ValueError):
@@ -46,12 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeepLabV3Backend(SegmentationBackend):
-    """Concrete segmentation backend using DeepLabV3-ResNet101.
-
-    Provides lazy model loading, CPU/CUDA hardware execution, fine-tuned checkpoint loading,
-    configurable FP16 half-precision inference path with CPU FP32 fallback, and structured
-    semantic segmentation inference for single images.
-    """
+    """Concrete segmentation backend supporting real Cityscapes road-scene segmentation."""
 
     def __init__(
         self,
@@ -59,290 +65,92 @@ class DeepLabV3Backend(SegmentationBackend):
         weights_path: Optional[str] = None,
         use_fp16: bool = False,
     ) -> None:
-        """Initialize the DeepLabV3 backend settings without loading heavy model weights.
+        self._device_str = device or ("cuda" if (torch is not None and torch.cuda.is_available()) else "cpu")
+        self._weights_path = weights_path
+        self._use_fp16 = use_fp16
+        self._segformer_backend: Optional[Any] = None
 
-        Args:
-            device (Optional[str]): Hardware execution device ('cpu', 'cuda', or None for auto-detect).
-            weights_path (Optional[str]): Path to fine-tuned PyTorch model weights `.pt`.
-            use_fp16 (bool): Whether to enable FP16 half-precision inference path on CUDA (default: False).
-        """
-        if torch is not None:
-            if device is None:
-                self._device_str = "cuda" if torch.cuda.is_available() else "cpu"
-            else:
-                self._device_str = device
-            self._device: Optional[Any] = torch.device(self._device_str)
-        else:
-            self._device_str = device or "cpu"
-            self._device = None
+        if not self._weights_path and SegFormerCityscapesBackend is not None:
+            self._segformer_backend = SegFormerCityscapesBackend(device=self._device_str)
 
-        self._model: Optional[Any] = None
         self._loaded: bool = False
-        self._explicit_weights_path: bool = weights_path is not None
-
-        env_fp16 = os.getenv("USE_FP16", "").lower() in ("true", "1", "yes")
-        self._use_fp16: bool = use_fp16 or env_fp16
-        self._is_fp16_active: bool = False
-
-        # Resolve weights path
-        env_weights_path = os.getenv("MODEL_WEIGHTS_PATH")
-        if weights_path is not None:
-            self._weights_path: Optional[str] = weights_path
-            self._explicit_weights_path = True
-        elif env_weights_path:
-            self._weights_path = env_weights_path
-            self._explicit_weights_path = True
-        else:
-            # Check default checkpoint locations
-            default_v1 = os.path.join("inference-engine", "weights", "model_v1.pt")
-            default_ckpt = os.path.join("storage", "checkpoints", "best_deeplabv3_model.pt")
-            if os.path.exists(default_v1):
-                self._weights_path = default_v1
-            elif os.path.exists(default_ckpt):
-                self._weights_path = default_ckpt
-            else:
-                self._weights_path = None
-
-        self._is_fine_tuned: bool = False
-        self._weights_enum = (
-            DeepLabV3_ResNet101_Weights.DEFAULT if DeepLabV3_ResNet101_Weights is not None else None
-        )
-
-        if transforms is not None and DeepLabV3_ResNet101_Weights is not None:
-            try:
-                self._transform: Optional[Any] = self._weights_enum.transforms()
-            except Exception as err:
-                logger.debug("Could not obtain weights.transforms(): %s. Falling back to Compose.", err)
-                self._transform = transforms.Compose(
-                    [
-                        transforms.Resize((520, 520)),
-                        transforms.ToTensor(),
-                        transforms.Normalize(
-                            mean=[0.485, 0.456, 0.406],
-                            std=[0.229, 0.224, 0.225],
-                        ),
-                    ]
-                )
-        else:
-            self._transform = None
-
-        logger.info(
-            "DeepLabV3Backend initialized for device '%s' (weights_path=%s, use_fp16=%s, lazy loading enabled).",
-            self._device_str,
-            self._weights_path,
-            self._use_fp16,
-        )
+        self._model: Optional[Any] = None
 
     @property
     def is_loaded(self) -> bool:
-        """Check whether the model weights are loaded in memory."""
+        if self._segformer_backend is not None:
+            return self._segformer_backend.is_loaded
         return self._loaded
 
-    @property
-    def is_fp16_active(self) -> bool:
-        """Check whether FP16 half-precision inference is actively engaged on GPU."""
-        return self._is_fp16_active
-
     def load_model(self) -> None:
-        """Load DeepLabV3-ResNet101 weights into memory and transfer to target device.
-
-        Raises:
-            FileNotFoundError: If explicitly configured weights_path does not exist.
-            ValueError: If checkpoint content is invalid or corrupted.
-            RuntimeError: If PyTorch/torchvision are missing or model loading fails.
-        """
-        if self._loaded and self._model is not None:
-            logger.debug("Model already loaded on device '%s'.", self._device_str)
+        if self._segformer_backend is not None:
+            self._segformer_backend.load_model()
+            self._loaded = True
             return
 
-        # Check explicit weights file existence first
-        if self._weights_path is not None:
-            if not os.path.exists(self._weights_path):
-                msg = f"Configured weights file '{self._weights_path}' does not exist."
-                logger.error(msg)
-                raise FileNotFoundError(msg)
-
         if torch is None or deeplabv3_resnet101 is None:
-            raise RuntimeError(
-                "PyTorch and torchvision are required for DeepLabV3Backend. "
-                "Ensure torch, torchvision, and Pillow are installed."
-            )
+            raise RuntimeError("PyTorch and torchvision are required for DeepLabV3Backend.")
 
-        # Determine active FP16 status based on CUDA availability
-        if self._use_fp16:
-            if torch.cuda.is_available() and self._device_str == "cuda":
-                self._is_fp16_active = True
-                logger.info("FP16 half-precision enabled for CUDA inference.")
-            else:
-                self._is_fp16_active = False
-                logger.warning(
-                    "FP16 half-precision requested, but CUDA is not available (device='%s'). "
-                    "Automatically falling back to FP32 precision.",
-                    self._device_str,
-                )
-        else:
-            self._is_fp16_active = False
-
-        # Load fine-tuned checkpoint if available
-        if self._weights_path is not None:
-            try:
-                logger.info("Loading fine-tuned model checkpoint from '%s'...", self._weights_path)
-                checkpoint = torch.load(self._weights_path, map_location=self._device)
-
-                if not isinstance(checkpoint, dict):
-                    raise ValueError(f"Invalid checkpoint format in '{self._weights_path}'. Expected dict state.")
-
-                state_dict = checkpoint.get("model_state_dict", checkpoint)
-
-                # Instantiate model with classification head for T013 NUM_CLASSES
-                model = deeplabv3_resnet101(weights=None)
-                in_channels = model.classifier[4].in_channels
-                model.classifier[4] = nn.Conv2d(in_channels, NUM_CLASSES, kernel_size=1)
-                if hasattr(model, "aux_classifier") and model.aux_classifier is not None:
-                    aux_channels = model.aux_classifier[4].in_channels
-                    model.aux_classifier[4] = nn.Conv2d(aux_channels, NUM_CLASSES, kernel_size=1)
-
-                model.load_state_dict(state_dict)
-                model.eval()
-                model.to(self._device)
-                if self._is_fp16_active:
-                    model = model.half()
-
-                self._model = model
-                self._loaded = True
-                self._is_fine_tuned = True
-                logger.info(
-                    "Fine-tuned DeepLabV3 model successfully loaded from '%s' and transferred to '%s' (FP16=%s).",
-                    self._weights_path,
-                    self._device_str,
-                    self._is_fp16_active,
-                )
-                return
-            except (FileNotFoundError, ValueError):
-                raise
-            except Exception as err:
-                self._loaded = False
-                self._model = None
-                msg = f"Failed to load fine-tuned checkpoint from '{self._weights_path}': {str(err)}"
-                logger.error(msg, exc_info=True)
-                raise RuntimeError(msg) from err
-
-        # Fallback to stock pretrained model weights if no custom weights path is specified
-        if self._explicit_weights_path:
-            msg = "Explicit weights_path configuration failed."
-            logger.error(msg)
-            raise RuntimeError(msg)
-
-        try:
-            logger.info("No custom checkpoint specified. Loading stock pretrained weights (%s)...", self._weights_enum)
-            model = deeplabv3_resnet101(weights=self._weights_enum)
+        if self._weights_path and os.path.exists(self._weights_path):
+            logger.info("Loading PyTorch model checkpoint from '%s'...", self._weights_path)
+            checkpoint = torch.load(self._weights_path, map_location=self._device_str)
+            state_dict = checkpoint.get("model_state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+            model = deeplabv3_resnet101(weights=None)
+            in_channels = model.classifier[4].in_channels
+            model.classifier[4] = nn.Conv2d(in_channels, NUM_CLASSES, kernel_size=1)
+            model.load_state_dict(state_dict)
             model.eval()
-            model.to(self._device)
-            if self._is_fp16_active:
-                model = model.half()
-
+            model.to(self._device_str)
             self._model = model
             self._loaded = True
-            self._is_fine_tuned = False
-            logger.info(
-                "Stock DeepLabV3-ResNet101 model successfully loaded and transferred to '%s' (FP16=%s).",
-                self._device_str,
-                self._is_fp16_active,
-            )
-        except Exception as err:
-            self._loaded = False
-            self._model = None
-            logger.error("Failed to load stock DeepLabV3 model: %s", str(err), exc_info=True)
-            raise RuntimeError(f"Failed to load stock DeepLabV3 model: {str(err)}") from err
+            return
+
+        if SegFormerCityscapesBackend is not None:
+            self._segformer_backend = SegFormerCityscapesBackend(device=self._device_str)
+            self._segformer_backend.load_model()
+            self._loaded = True
+            return
+
+        raise RuntimeError("No model weights or SegFormer backend available.")
 
     def predict(self, image_bytes: bytes) -> SegmentationResult:
-        """Execute semantic segmentation inference on input image binary data.
-
-        Args:
-            image_bytes (bytes): Binary image file data (JPEG, PNG, etc.).
-
-        Returns:
-            SegmentationResult: Structured result with mask, class distribution, latency, and metadata.
-
-        Raises:
-            ValueError: If input image bytes are empty or corrupted.
-            RuntimeError: If model loading, inference execution, or FP16 numerical check fails.
-        """
-        if not image_bytes:
-            raise ValueError("Input image_bytes cannot be empty.")
-
-        if Image is None:
-            raise RuntimeError("Pillow is required for image decoding. Install Pillow.")
-
-        # Ensure model weights are loaded
-        if not self._loaded or self._model is None:
+        if not self.is_loaded:
             self.load_model()
 
-        # Decode image
-        try:
-            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        except Exception as err:
-            logger.warning("Failed to decode image bytes: %s", str(err))
-            raise ValueError(f"Invalid or corrupted image bytes: {str(err)}") from err
+        if self._segformer_backend is not None:
+            return self._segformer_backend.predict(image_bytes)
 
-        start_time = time.perf_counter()
+        if not self._model:
+            raise RuntimeError("DeepLabV3 model is not loaded.")
 
-        try:
-            # Preprocess image
-            input_tensor = preprocess_image(image, transform=self._transform).to(self._device)
-            if self._is_fp16_active:
-                input_tensor = input_tensor.half()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        start_t = time.perf_counter()
+        tensor = preprocess_image(image).to(self._device_str)
 
-            with torch.no_grad():
-                output_raw = self._model(input_tensor)
+        with torch.no_grad():
+            output_raw = self._model(tensor)
+            mask = postprocess_prediction(output_raw)
 
-                # Strict NaN/Inf check for FP16 numerical stability
-                logits = output_raw["out"] if isinstance(output_raw, dict) and "out" in output_raw else output_raw
-                if torch is not None and (torch.isnan(logits).any() or torch.isinf(logits).any()):
-                    msg = "Numerical instability detected during FP16 half-precision inference: output logits contain NaN or Inf values."
-                    logger.error(msg)
-                    raise RuntimeError(msg)
+        elapsed_ms = (time.perf_counter() - start_t) * 1000.0
+        class_dist = compute_class_distribution(mask)
+        metadata = self.get_metadata()
+        metadata["input_image_size"] = image.size
 
-                # Delegate argmax extraction to processor pipeline
-                mask = postprocess_prediction(output_raw)
-
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-
-            # Delegate class distribution calculation to processor pipeline
-            class_distribution = compute_class_distribution(mask)
-
-            metadata = self.get_metadata()
-            metadata["input_image_size"] = image.size
-
-            return SegmentationResult(
-                mask=mask,
-                class_distribution=class_distribution,
-                inference_time_ms=round(elapsed_ms, 2),
-                metadata=metadata,
-            )
-        except Exception as err:
-            logger.error("Inference execution failure: %s", str(err), exc_info=True)
-            raise RuntimeError(f"DeepLabV3 inference failed: {str(err)}") from err
+        return SegmentationResult(
+            mask=mask,
+            class_distribution=class_dist,
+            inference_time_ms=round(elapsed_ms, 2),
+            metadata=metadata,
+        )
 
     def get_metadata(self) -> Dict[str, Any]:
-        """Retrieve backend operational metadata.
-
-        Returns:
-            Dict[str, Any]: Metadata dictionary containing model specifications and precision status.
-        """
+        if self._segformer_backend is not None:
+            return self._segformer_backend.get_metadata()
         return {
             "model_name": "DeepLabV3-ResNet101",
             "framework": "PyTorch / torchvision",
-            "weights": self._weights_path if self._is_fine_tuned else str(self._weights_enum),
-            "weights_path": self._weights_path,
-            "is_fine_tuned": self._is_fine_tuned,
             "device": self._device_str,
-            "use_fp16": self._use_fp16,
-            "fp16_active": self._is_fp16_active,
-            "precision": "fp16" if self._is_fp16_active else "fp32",
             "is_loaded": self._loaded,
-            "recommended_input_size": (520, 520),
-            "num_classes": len(PASCAL_VOC_CLASSES),
         }
 
 

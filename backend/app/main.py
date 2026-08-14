@@ -6,9 +6,12 @@ registers global exception handlers (T094), manages database & cache connection 
 
 from contextlib import asynccontextmanager
 import logging
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
 from app.api.v1.router import api_router
 from app.config import settings
 from app.db.mongodb import mongodb_manager
@@ -81,6 +84,12 @@ app.add_middleware(RequestIDMiddleware)
 
 # Include API V1 Router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Serve static media storage files
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+storage_dir = os.path.join(repo_root, "storage")
+os.makedirs(storage_dir, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=storage_dir), name="storage")
 
 
 @app.get(

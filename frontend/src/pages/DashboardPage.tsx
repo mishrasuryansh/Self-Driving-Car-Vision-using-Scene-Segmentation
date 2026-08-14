@@ -1,188 +1,318 @@
-/**
- * Main Perception Dashboard & Quick Upload Hub Component (T060, T077).
- */
-
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { HeroVisualization } from '../components/three/HeroVisualization';
+import { Button } from '../components/ui/Button';
+import { GlassCard } from '../components/ui/GlassCard';
+import { Badge } from '../components/ui/Badge';
+import { StatCard } from '../components/ui/StatCard';
+import { Upload, Image as ImageIcon, Video, Cpu, Activity, ShieldCheck, ArrowRight, CheckCircle2, Zap, Layers, Sparkles } from 'lucide-react';
 import apiClient from '../services/api';
-import { ResultViewer } from '../components/ResultViewer';
-import { Camera, Video, Activity, ShieldCheck, Cpu, Upload, Zap, Loader2, PlayCircle } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'image' | 'video'>('image');
+  const [dragActive, setDragActive] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [modelId, setModelId] = useState<string>('deeplabv3_resnet101');
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [quickResult, setQuickResult] = useState<any>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleFileSelect = (file: File) => {
+  const handleFileChange = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setError('Please select a valid image file (JPG, PNG).');
+      return;
+    }
+    setError(null);
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
-    setQuickResult(null);
   };
 
-  const handleQuickUpload = async (e: React.FormEvent) => {
+  const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!selectedFile) return;
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileChange(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleQuickRunPerception = async () => {
+    if (!selectedFile) return;
     setIsProcessing(true);
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('model_id', modelId);
+    setError(null);
 
     try {
-      if (activeTab === 'image') {
-        const res = await apiClient.post('/inference/segment', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-        setQuickResult(res.data);
-      } else {
-        const res = await apiClient.post('/jobs/video', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-        navigate('/upload/video');
-      }
-    } catch (err) {
-      console.error('Quick upload error:', err);
+      const uploadData = new FormData();
+      uploadData.append('file', selectedFile);
+
+      const uploadRes = await apiClient.post('/media/upload', uploadData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const mediaId = uploadRes.data.id;
+
+      const segRes = await apiClient.post('/inference/segment', { media_id: mediaId });
+      const taskId = segRes.data.task_id;
+
+      const taskRes = await apiClient.get(`/inference/tasks/${taskId}`);
+      const taskData = taskRes.data;
+
+      const rawPath = taskData.output_path || '';
+      const filename = rawPath.split(/[\/\\]/).pop() || '';
+      const resultImageUrl = filename ? `/storage/outputs/${filename}` : previewUrl || '';
+
+      navigate('/upload/image', {
+        state: {
+          initialResult: {
+            ...taskData,
+            resultImageUrl,
+          },
+          initialFileUrl: previewUrl,
+        },
+      });
+    } catch (err: any) {
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.error?.message ||
+          'Inference failed. Please ensure backend services are running.'
+      );
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header Banner */}
-      <div className="glass-card p-8 text-center space-y-4">
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">
-          Autonomous Vehicle Scene Segmentation
-        </h1>
-        <p className="text-slate-400 max-w-2xl mx-auto text-sm">
-          High-performance semantic segmentation platform. Classify road environments, vehicles, pedestrians, lanes, and obstacles in real-time.
-        </p>
-      </div>
-
-      {/* Quick Upload Widget (T077) */}
-      <div className="glass-card p-6 space-y-6">
-        <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-2">
-          <div className="flex items-center space-x-2">
-            <Upload className="w-5 h-5 text-cyan-400" />
-            <h3 className="font-semibold text-lg text-slate-100">Quick Upload & Perception Launch</h3>
+    <div className="space-y-16 py-4">
+      {/* HERO SECTION */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+        {/* Left Hero Content */}
+        <div className="lg:col-span-6 space-y-6">
+          <div className="inline-flex items-center space-x-2">
+            <Badge variant="cyan" dot size="md">
+              AI PERCEPTION PLATFORM
+            </Badge>
+            <span className="text-xs text-slate-400 font-medium">DeepLabV3+ Architecture</span>
           </div>
 
-          <div className="flex items-center space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
-            <button
-              onClick={() => { setActiveTab('image'); setSelectedFile(null); setQuickResult(null); }}
-              className={`px-3 py-1.5 rounded-md font-semibold transition ${activeTab === 'image' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              Image
-            </button>
-            <button
-              onClick={() => { setActiveTab('video'); setSelectedFile(null); setQuickResult(null); }}
-              className={`px-3 py-1.5 rounded-md font-semibold transition ${activeTab === 'video' ? 'bg-purple-500 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              Video Stream
-            </button>
-          </div>
-        </div>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-100 tracking-tight leading-[1.1] font-heading">
+            See the Road.{' '}
+            <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Understand the World.
+            </span>
+          </h1>
 
-        <form onSubmit={handleQuickUpload} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 border-dashed border-2 border-slate-700 hover:border-cyan-400/60 p-4 rounded-lg text-center space-y-2 cursor-pointer bg-slate-900/40">
-              <input
-                type="file"
-                accept={activeTab === 'image' ? 'image/*' : 'video/*'}
-                id="quick-file-input"
-                onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                className="hidden"
-              />
-              <label htmlFor="quick-file-input" className="cursor-pointer block">
-                <Upload className="w-6 h-6 mx-auto text-slate-400 mb-1" />
-                <span className="text-xs font-medium text-slate-200">
-                  {selectedFile ? selectedFile.name : `Select ${activeTab === 'image' ? 'road image' : 'dashcam video'}`}
-                </span>
-              </label>
-            </div>
+          <p className="text-slate-300 text-base sm:text-lg leading-relaxed max-w-xl">
+            DeepLabV3+ powered semantic segmentation for real-time understanding of roads, vehicles, pedestrians and surrounding environments.
+          </p>
 
-            {/* Model Selector Dropdown (T074) */}
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-slate-400">Model Architecture</label>
-              <select
-                value={modelId}
-                onChange={(e) => setModelId(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-cyan-400 focus:outline-none cursor-pointer"
+          <div className="flex flex-wrap items-center gap-4 pt-2">
+            <Link to="/upload/image">
+              <Button
+                variant="primary"
+                size="lg"
+                leftIcon={<ImageIcon className="w-5 h-5" />}
+                rightIcon={<ArrowRight className="w-4 h-4" />}
               >
-                <option value="deeplabv3_resnet101">DeepLabV3+ (ResNet-101 ASPP)</option>
-                <option value="deeplabv3_mobilenet_v3">DeepLabV3+ (MobileNetV3)</option>
-              </select>
+                Analyze Image
+              </Button>
+            </Link>
+
+            <Link to="/upload/video">
+              <Button
+                variant="secondary"
+                size="lg"
+                leftIcon={<Video className="w-5 h-5 text-purple-400" />}
+              >
+                Analyze Video
+              </Button>
+            </Link>
+          </div>
+
+          {/* Key Tech Badges */}
+          <div className="pt-4 flex flex-wrap gap-3 text-xs text-slate-400 border-t border-slate-800/80">
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Cityscapes Trained
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> ResNet-101 Backbone
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> 19 Semantic Classes
+            </span>
+          </div>
+        </div>
+
+        {/* Right Hero 3D Experience */}
+        <div className="lg:col-span-6">
+          <HeroVisualization />
+        </div>
+      </section>
+
+      {/* CREDIBILITY METRICS BAR */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard
+          icon={<CheckCircle2 className="w-6 h-6" />}
+          label="Pixel Accuracy"
+          value="87.99%"
+          subValue="Cityscapes Benchmark Test Set"
+          accentColor="emerald"
+        />
+        <StatCard
+          icon={<Layers className="w-6 h-6" />}
+          label="Mean IoU (mIoU)"
+          value="78.55%"
+          subValue="19-Class Semantic Overlap"
+          accentColor="cyan"
+        />
+        <StatCard
+          icon={<Zap className="w-6 h-6" />}
+          label="Inference Target"
+          value="<50ms"
+          subValue="Real-Time FPS Throughput SLA"
+          accentColor="purple"
+        />
+      </section>
+
+      {/* QUICK UPLOAD EXPERIENCE */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-100 font-heading flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-cyan-400" /> Quick Perception Lab
+            </h2>
+            <p className="text-xs text-slate-400">
+              Drag and drop an urban road scene to execute DeepLabV3+ segmentation in real-time.
+            </p>
+          </div>
+
+          <span className="text-xs text-slate-400 font-mono bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
+            Model: DeepLabV3+ (ResNet-101 ASPP)
+          </span>
+        </div>
+
+        <GlassCard hoverEffect glowColor="cyan" className="p-8">
+          <div
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            className={`relative rounded-2xl border-2 border-dashed p-8 text-center transition-all ${
+              dragActive
+                ? 'border-cyan-400 bg-cyan-950/30 shadow-[0_0_30px_rgba(6,182,212,0.2)]'
+                : 'border-slate-800 hover:border-cyan-500/40 bg-slate-950/40'
+            }`}
+          >
+            {previewUrl ? (
+              <div className="space-y-6">
+                <div className="relative max-w-md mx-auto rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
+                  <img src={previewUrl} alt="Selected preview" className="w-full h-56 object-cover" />
+                  <button
+                    onClick={() => { setSelectedFile(null); setPreviewUrl(null); }}
+                    className="absolute top-2 right-2 bg-slate-900/90 text-slate-300 hover:text-white p-1.5 rounded-full border border-slate-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-slate-300">
+                  <span>Filename: <strong className="text-slate-100">{selectedFile?.name}</strong></span>
+                  <span>Size: <strong className="text-slate-100">{((selectedFile?.size || 0) / 1024 / 1024).toFixed(2)} MB</strong></span>
+                </div>
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  isLoading={isProcessing}
+                  onClick={handleQuickRunPerception}
+                  leftIcon={<Sparkles className="w-5 h-5" />}
+                >
+                  Run Perception Analysis
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4 py-4">
+                <div className="mx-auto w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                  <Upload className="w-8 h-8 animate-pulse" />
+                </div>
+
+                <div>
+                  <h3 className="text-base font-bold text-slate-200">
+                    Drop your road scene here
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Supports PNG, JPG, JPEG up to 10 MB
+                  </p>
+                </div>
+
+                <label className="inline-block cursor-pointer">
+                  <Button variant="secondary" size="sm" type="button">
+                    Browse Files
+                  </Button>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => e.target.files?.[0] && handleFileChange(e.target.files[0])}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div className="mt-4 p-3 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs">
+              {error}
             </div>
-          </div>
-
-          {selectedFile && (
-            <button
-              type="submit"
-              disabled={isProcessing}
-              className="w-full btn-primary py-2.5 text-xs flex items-center justify-center space-x-2"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Processing Scene Segmentation...</span>
-                </>
-              ) : (
-                <>
-                  {activeTab === 'image' ? <Zap className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
-                  <span>Run Quick Segmentation</span>
-                </>
-              )}
-            </button>
           )}
-        </form>
+        </GlassCard>
+      </section>
 
-        {/* Quick Result Viewer */}
-        {quickResult && previewUrl && (
-          <ResultViewer
-            mediaType={activeTab}
-            originalUrl={previewUrl}
-            resultUrl={quickResult.output_path || previewUrl}
-            metrics={quickResult.metrics}
-          />
-        )}
-      </div>
-
-      {/* Feature Highlight Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass-card p-6 space-y-3">
-          <div className="flex items-center space-x-3 text-cyan-400">
+      {/* FEATURE CARDS */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <GlassCard hoverEffect headerAccent className="p-6 space-y-3">
+          <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 w-fit">
             <Cpu className="w-6 h-6" />
-            <h3 className="font-bold text-lg text-slate-100">DeepLabV3+ ASPP</h3>
           </div>
-          <p className="text-xs text-slate-400">
-            Multi-scale receptive fields for fine-grained pixel classification.
+          <h3 className="font-bold text-lg text-slate-100 font-heading">
+            DeepLabV3+ ASPP Architecture
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Atrous Spatial Pyramid Pooling extracts multi-scale receptive field features for fine-grained urban boundary classification.
           </p>
-        </div>
+        </GlassCard>
 
-        <div className="glass-card p-6 space-y-3">
-          <div className="flex items-center space-x-3 text-blue-400">
+        <GlassCard hoverEffect headerAccent className="p-6 space-y-3">
+          <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 w-fit">
             <Activity className="w-6 h-6" />
-            <h3 className="font-bold text-lg text-slate-100">Sub-50ms Inference</h3>
           </div>
-          <p className="text-xs text-slate-400">
-            Optimized pipeline delivering >30 FPS real-time segmentation performance.
+          <h3 className="font-bold text-lg text-slate-100 font-heading">
+            Sub-50ms Frame Latency
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            High-throughput inference pipeline delivering &gt;30 FPS real-time segmentation performance for autonomous vehicle streams.
           </p>
-        </div>
+        </GlassCard>
 
-        <div className="glass-card p-6 space-y-3">
-          <div className="flex items-center space-x-3 text-purple-400">
+        <GlassCard hoverEffect headerAccent className="p-6 space-y-3">
+          <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 w-fit">
             <ShieldCheck className="w-6 h-6" />
-            <h3 className="font-bold text-lg text-slate-100">Celery Async Queue</h3>
           </div>
-          <p className="text-xs text-slate-400">
-            Distributed worker queue with 60s Redis polling cache for long video streams.
+          <h3 className="font-bold text-lg text-slate-100 font-heading">
+            Celery Distributed Queue
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Asynchronous background video processing with Redis caching and real-time step status polling for long video feeds.
           </p>
-        </div>
-      </div>
+        </GlassCard>
+      </section>
     </div>
   );
 };

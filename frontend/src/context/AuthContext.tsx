@@ -9,7 +9,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import apiClient from '../services/api';
 
 export interface UserProfile {
-  id: str;
+  id: string;
   email: string;
   full_name?: string;
   is_active: boolean;

@@ -94,6 +94,22 @@ class ForbiddenException(APIException):
         )
 
 
+class InternalServerErrorException(APIException):
+    """HTTP 500 Internal Server Error Exception."""
+
+    def __init__(
+        self,
+        message: str = "An internal server error occurred.",
+        details: Optional[Any] = None,
+    ):
+        super().__init__(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="INTERNAL_SERVER_ERROR",
+            message=message,
+            details=details,
+        )
+
+
 def get_request_id(request: Request) -> str:
     """Extract request_id attached by RequestIDMiddleware."""
     return getattr(request.state, "request_id", "N/A")
@@ -204,6 +220,7 @@ __all__ = [
     "BadRequestException",
     "UnauthorizedException",
     "ForbiddenException",
+    "InternalServerErrorException",
     "format_error_response",
     "api_exception_handler",
     "http_exception_handler",

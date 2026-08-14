@@ -1,8 +1,8 @@
 """Media File Upload & Retrieval Endpoints (T092, T093).
 
-Provides endpoints for uploading raw image/video files (`POST /api/v1/media/upload`)
-and retrieving media metadata (`GET /api/v1/media/{media_id}`) with path traversal guards (T092)
-and user resource ownership verification (T093).
+Provides endpoints for uploading raw image/video files (`POST /api/v1/media/upload`),
+retrieving media metadata (`GET /api/v1/media/{media_id}`), and fetching raw media binary files (`GET /api/v1/media/file/{filename}`)
+with path traversal guards (T092) and user resource ownership verification (T093).
 """
 
 from datetime import datetime, timezone
@@ -10,6 +10,8 @@ import logging
 import os
 import uuid
 from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi.responses import FileResponse
+
 from app.api.deps import get_current_active_user
 from app.config import settings
 from app.db.memory_store import _in_memory_media
@@ -39,13 +41,11 @@ async def upload_media(
     """Upload media file (JPEG/PNG/MP4), validate mime type, size, and guard against path traversal attacks (T092)."""
     filename = file.filename or "uploaded_file"
 
-    # Path traversal validation (T092)
     if ".." in filename or "/" in filename or "\\" in filename:
         raise BadRequestException(message="Invalid filename: path traversal sequences are not allowed.")
 
     mime_type = (file.content_type or "").lower().strip()
 
-    # Determine file type
     file_type = None
     if mime_type in ALLOWED_IMAGE_TYPES or filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
         file_type = "image"
@@ -60,7 +60,6 @@ async def upload_media(
             message=f"Unsupported file type '{mime_type}'. Only JPEG, PNG, WEBP images and MP4, AVI, MOV videos are allowed."
         )
 
-    # Read content to validate file size
     contents = await file.read()
     size_bytes = len(contents)
     max_image_bytes = settings.MAX_IMAGE_SIZE_MB * 1024 * 1024
@@ -76,7 +75,6 @@ async def upload_media(
             message=f"Video size ({size_bytes / 1024 / 1024:.2f} MB) exceeds maximum allowed limit of {settings.MAX_VIDEO_SIZE_MB} MB."
         )
 
-    # Generate unique media ID and file storage path
     media_id = str(uuid.uuid4())
     _, ext = os.path.splitext(filename)
     if not ext:
@@ -89,7 +87,6 @@ async def upload_media(
     dest_path = os.path.normpath(os.path.join(upload_dir, saved_filename))
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-    # Save file to disk
     with open(dest_path, "wb") as f:
         f.write(contents)
 
@@ -107,7 +104,6 @@ async def upload_media(
         "created_at": now,
     }
 
-    # Persist document to MongoDB or in-memory fallback
     if db is not None:
         try:
             await db["media"].insert_one(media_doc)
@@ -130,6 +126,27 @@ async def upload_media(
         user_id=current_user.id,
         created_at=now,
     )
+
+
+@router.get(
+    "/file/{filename}",
+    summary="Download or stream raw storage media file",
+)
+async def get_raw_storage_file(filename: str):
+    """Serve storage media file by filename with path traversal protection."""
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise BadRequestException(message="Invalid filename.")
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    file_path = os.path.join(repo_root, "storage", "uploads", filename)
+    output_file_path = os.path.join(repo_root, "storage", "outputs", filename)
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    elif os.path.exists(output_file_path):
+        return FileResponse(output_file_path)
+    else:
+        raise NotFoundException(message=f"Storage file '{filename}' not found.")
 
 
 @router.get(
@@ -157,7 +174,6 @@ async def get_media_metadata(
     if not doc:
         raise NotFoundException(message=f"Media item #{media_id} not found.")
 
-    # Ownership check (T093)
     if doc.get("user_id") and doc["user_id"] != current_user.id:
         raise ForbiddenException(message="Access denied: you do not own this media resource.")
 

@@ -1,15 +1,12 @@
-/**
- * Perception Analytics Dashboard Component (T081, T082, T083, T084, T085).
- *
- * Implements date-range picker, time-series job trend chart, overall class-distribution chart,
- * average inference time trend badge, and CSV export functionality.
- */
-
 import React, { useEffect, useState } from 'react';
 import apiClient from '../services/api';
 import { Spinner } from '../components/Spinner';
 import { ErrorBanner } from '../components/ErrorBanner';
-import { BarChart2, Activity, Clock, Layers, ShieldCheck, Download, Calendar, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { BarChart2, Activity, Clock, Layers, ShieldCheck, Download, Calendar, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react';
+import { GlassCard } from '../components/ui/GlassCard';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { StatCard } from '../components/ui/StatCard';
 
 interface AnalyticsSummary {
   totalJobs: number;
@@ -49,7 +46,7 @@ export const AnalyticsPage: React.FC = () => {
       });
       setData(res.data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load analytics summary data.');
+      setError(err.response?.data?.detail || 'Failed to load perception analytics data.');
     } finally {
       setIsLoading(false);
     }
@@ -59,7 +56,7 @@ export const AnalyticsPage: React.FC = () => {
     fetchAnalytics();
   }, [dateFrom, dateTo]);
 
-  // CSV Export Handler (T085)
+  // CSV Export Handler
   const handleExportCSV = () => {
     if (!data) return;
 
@@ -71,7 +68,7 @@ export const AnalyticsPage: React.FC = () => {
 
     csvContent += 'Class,Percentage\n';
     Object.entries(data.classDistributionOverall).forEach(([cls, pct]) => {
-      csvContent += `${cls},${pct.toFixed(2)}%\n`;
+      csvContent += `${cls},${(pct as number).toFixed(2)}%\n`;
     });
 
     csvContent += '\nDate,Job Count\n';
@@ -88,7 +85,6 @@ export const AnalyticsPage: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // Inference Time Trend Direction (T084)
   const getTrendIndicator = () => {
     if (!data || data.totalJobs < 2) {
       return (
@@ -97,7 +93,6 @@ export const AnalyticsPage: React.FC = () => {
         </span>
       );
     }
-    // Compare baseline SLA vs actual
     if (data.avgInferenceMs < 35) {
       return (
         <span className="text-emerald-400 font-semibold flex items-center text-xs">
@@ -113,113 +108,113 @@ export const AnalyticsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header & Controls Bar (T081 & T085) */}
+    <div className="space-y-8 max-w-6xl mx-auto py-2">
+      {/* Header & Controls Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
         <div className="flex items-center space-x-3">
-          <BarChart2 className="w-8 h-8 text-cyan-400" />
+          <div className="p-2.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+            <BarChart2 className="w-6 h-6" />
+          </div>
           <div>
-            <h1 className="text-2xl font-bold">Perception Analytics Dashboard</h1>
-            <p className="text-xs text-slate-400">Time-series trends, throughput metrics, and class distribution breakdown</p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 font-heading">
+              Perception Observability Analytics
+            </h1>
+            <p className="text-xs text-slate-400">
+              System throughput, latency trends, and aggregate class distribution metrics
+            </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Date-Range Picker (T081) */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
-            <Calendar className="w-4 h-4 text-cyan-400" />
+          {/* Date-Range Picker */}
+          <div className="flex items-center space-x-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
+            <Calendar className="w-4 h-4 text-cyan-400 shrink-0" />
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
             />
             <span className="text-slate-500">to</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+              className="bg-transparent text-slate-200 focus:outline-none cursor-pointer text-xs"
             />
           </div>
 
-          {/* Export CSV Button (T085) */}
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleExportCSV}
             disabled={!data}
-            className="btn-primary text-xs flex items-center space-x-1.5 py-2 px-3"
+            leftIcon={<Download className="w-4 h-4" />}
           >
-            <Download className="w-4 h-4" />
-            <span>Export CSV</span>
-          </button>
+            Export CSV
+          </Button>
         </div>
       </div>
 
       {error && <ErrorBanner message={error} />}
 
       {isLoading ? (
-        <div className="glass-card p-12 text-center">
+        <GlassCard className="p-12 text-center">
           <Spinner size="lg" label="Computing perception analytics summary..." />
-        </div>
+        </GlassCard>
       ) : data ? (
         <div className="space-y-6">
           {/* Summary Metric Gauges */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="glass-card p-5 space-y-2">
-              <div className="flex items-center space-x-2 text-cyan-400 text-xs font-semibold uppercase">
-                <Activity className="w-4 h-4" />
-                <span>Avg Throughput</span>
-              </div>
-              <div className="text-2xl font-extrabold text-slate-100">{data.avgFps.toFixed(1)} FPS</div>
-              <p className="text-xs text-slate-400">>30 FPS Section 8.2 Standard</p>
-            </div>
+            <StatCard
+              icon={<Activity className="w-6 h-6" />}
+              label="Avg Throughput"
+              value={`${data.avgFps.toFixed(1)} FPS`}
+              subValue=">30 FPS Real-Time Standard"
+              accentColor="cyan"
+            />
 
-            <div className="glass-card p-5 space-y-2">
-              <div className="flex items-center space-x-2 text-purple-400 text-xs font-semibold uppercase">
-                <Clock className="w-4 h-4" />
-                <span>Mean Latency</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-2xl font-extrabold text-slate-100">{data.avgInferenceMs.toFixed(2)} ms</div>
-                {getTrendIndicator()}
-              </div>
-              <p className="text-xs text-slate-400">Sub-50ms Frame SLA</p>
-            </div>
+            <StatCard
+              icon={<Clock className="w-6 h-6" />}
+              label="Mean Frame Latency"
+              value={`${data.avgInferenceMs.toFixed(2)} ms`}
+              subValue="Sub-50ms SLA Target"
+              trend={data.avgInferenceMs < 45 ? 'Optimal Throughput' : 'Stable'}
+              accentColor="purple"
+            />
 
-            <div className="glass-card p-5 space-y-2">
-              <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold uppercase">
-                <ShieldCheck className="w-4 h-4" />
-                <span>Mean IoU Accuracy</span>
-              </div>
-              <div className="text-2xl font-extrabold text-slate-100">84.5%</div>
-              <p className="text-xs text-slate-400">DeepLabV3+ ResNet-101</p>
-            </div>
+            <StatCard
+              icon={<ShieldCheck className="w-6 h-6" />}
+              label="Mean IoU Accuracy"
+              value="84.5%"
+              subValue="Cityscapes Benchmark"
+              accentColor="emerald"
+            />
 
-            <div className="glass-card p-5 space-y-2">
-              <div className="flex items-center space-x-2 text-blue-400 text-xs font-semibold uppercase">
-                <Layers className="w-4 h-4" />
-                <span>Total Jobs Processed</span>
-              </div>
-              <div className="text-2xl font-extrabold text-slate-100">{data.totalJobs}</div>
-              <p className="text-xs text-slate-400">In selected date range</p>
-            </div>
+            <StatCard
+              icon={<Layers className="w-6 h-6" />}
+              label="Total Jobs Processed"
+              value={data.totalJobs}
+              subValue="In Selected Date Range"
+              accentColor="blue"
+            />
           </div>
 
-          {/* Time-Series Job Volume Trend Chart (T082) */}
-          <div className="glass-card p-6 space-y-4">
+          {/* Time-Series Job Volume Trend Chart */}
+          <GlassCard hoverEffect glowColor="cyan" className="p-6 space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
               <Activity className="w-5 h-5 text-cyan-400" />
-              <h3 className="font-semibold text-lg text-slate-100">Jobs Processed Over Time</h3>
+              <h3 className="font-bold text-lg text-slate-100 font-heading">Perception Job Volume Trends</h3>
             </div>
 
             <div className="space-y-3 pt-2">
               {data.jobsOverTime.map((row) => (
-                <div key={row.date} className="space-y-1">
-                  <div className="flex justify-between text-xs font-medium">
+                <div key={row.date} className="space-y-1.5 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                  <div className="flex justify-between text-xs font-semibold">
                     <span className="text-slate-300 font-mono">{row.date}</span>
-                    <span className="text-cyan-400 font-bold">{row.count} jobs</span>
+                    <span className="text-cyan-400 font-bold font-mono">{row.count} jobs</span>
                   </div>
-                  <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+                  <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
                     <div
                       className="bg-gradient-to-r from-cyan-400 to-blue-500 h-full rounded-full transition-all duration-300"
                       style={{ width: `${Math.max(10, Math.min(100, row.count * 20))}%` }}
@@ -228,35 +223,39 @@ export const AnalyticsPage: React.FC = () => {
                 </div>
               ))}
             </div>
-          </div>
+          </GlassCard>
 
-          {/* Aggregate Class Distribution Composition Chart (T083) */}
-          <div className="glass-card p-6 space-y-4">
+          {/* Aggregate Class Distribution Composition Chart */}
+          <GlassCard hoverEffect glowColor="purple" className="p-6 space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
               <Layers className="w-5 h-5 text-purple-400" />
-              <h3 className="font-semibold text-lg text-slate-100">Aggregate Class Composition</h3>
+              <h3 className="font-bold text-lg text-slate-100 font-heading">Aggregate Class Distribution</h3>
             </div>
 
             <div className="space-y-3">
               {Object.entries(data.classDistributionOverall).map(([cls, pct]) => {
                 const color = CLASS_COLORS[cls.toLowerCase()] || '#94a3b8';
+                const pctVal = Number(pct);
                 return (
-                  <div key={cls} className="space-y-1">
-                    <div className="flex justify-between text-xs font-medium">
-                      <span className="capitalize text-slate-300 font-medium">{cls}</span>
-                      <span className="text-cyan-400 font-bold">{pct.toFixed(1)}%</span>
+                  <div key={cls} className="space-y-1.5 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="capitalize text-slate-200 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                        {cls}
+                      </span>
+                      <span className="text-cyan-400 font-bold font-mono">{pctVal.toFixed(1)}%</span>
                     </div>
-                    <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+                    <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
                       <div
                         className="h-full rounded-full transition-all duration-300"
-                        style={{ width: `${pct}%`, backgroundColor: color }}
+                        style={{ width: `${pctVal}%`, backgroundColor: color }}
                       />
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
+          </GlassCard>
         </div>
       ) : null}
     </div>
